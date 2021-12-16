@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 process.title = "mmdc"
-const commander = require('commander')
-const chalk = require('chalk')
-const fs = require('fs')
-const path = require('path')
-const puppeteer = require('puppeteer')
+import commander from 'commander'
+import chalk from 'chalk'
+import fs from 'fs'
+import path from 'path'
+import puppeteer from 'puppeteer'
 
-const pkg = require('./package.json')
+import pkg from './package.json'
 
 const error = message => {
   console.log(chalk.red(`\n${message}\n`))
@@ -63,7 +63,7 @@ commander
   .option('-w, --width [width]', 'Width of the page. Optional. Default: 800', /^\d+$/, '800')
   .option('-H, --height [height]', 'Height of the page. Optional. Default: 600', /^\d+$/, '600')
   .option('-i, --input <input>', 'Input mermaid file. Files ending in .md will be treated as Markdown and all charts (e.g. ```mermaid (...)```) will be extracted and generated. Required.')
-  .option('-o, --output [output]', 'Output file. It should be either svg, png or pdf. Optional. Default: input + ".svg"')
+  .option('-o, --output [output]', 'Output file. It should be either md, svg, png or pdf. Optional. Default: input + ".svg"')
   .option('-b, --backgroundColor [backgroundColor]', 'Background color. Example: transparent, red, \'#F0F0F0\'. Optional. Default: white')
   .option('-c, --configFile [configFile]', 'JSON configuration file for mermaid. Optional')
   .option('-C, --cssFile [cssFile]', 'CSS file for the page. Optional')
@@ -94,8 +94,8 @@ if (!output) {
   // specified with the '-o' option
   output = input ? (input + '.svg') : 'out.svg'
 }
-if (!/\.(?:svg|png|pdf)$/.test(output)) {
-  error(`Output file must end with ".svg", ".png" or ".pdf"`)
+if (!/\.(?:svg|png|pdf|md)$/.test(output)) {
+  error(`Output file must end with ".md", ".svg", ".png" or ".pdf"`)
 }
 const outputDir = path.dirname(output)
 if (!fs.existsSync(outputDir)) {
@@ -200,22 +200,42 @@ const parseMMD = async (browser, definition, output) => {
 }
 
 (async () => {
+  const mermaidChartsInMarkdown = '^```(?:mermaid)(\r?\n([\\s\\S]*?))```$';
+  const mermaidChartsInMarkdownRegexGlobal = new RegExp(mermaidChartsInMarkdown, 'gm')
+  const mermaidChartsInMarkdownRegex = new RegExp(mermaidChartsInMarkdown)
   const browser = await puppeteer.launch(puppeteerConfig)
   const definition = await getInputData(input)
   if (/\.md$/.test(input)) {
-    const matches = definition.match(/^```(?:mermaid)(\n([\s\S]*?))```$/gm);
 
-    if (matches !== null) {
-      info(`Found ${matches.length} mermaid charts in Markdown input`);
-      const mmdStrings = matches.map((str) => str.replace(/^```(?:mermaid)(\n([\s\S]*?))```$/,'$1').trim());
-      await Promise.all(mmdStrings.map((mmdString, index) => {
-          const output_file = output.replace(/(\..*)$/,`-${index + 1}$1`);
-          info(` - ${output_file}`);
-          return parseMMD(browser, mmdString, output_file);
+    const diagrams = [];
+    const outDefinition = definition.replaceAll(mermaidChartsInMarkdownRegexGlobal, (mermaidMd) => {
+      const md = mermaidChartsInMarkdownRegex.exec(mermaidMd)[1];
+
+      // Output can be either a template image file, or a `.md` output file.
+      //   If it is a template image file, use that to created numbered diagrams
+      //     I.e. if "out.png", use "out-1.png", "out-2.png", etc
+      //   If it is an output `.md` file, use that to base .svg numbered diagrams on
+      //     I.e. if "out.md". use "out-1.svg", "out-2.svg", etc
+      const outputFile = output.replace(/(\..*)$/,`-${diagrams.length + 1}$1`).replace(/(\.md)$/, '.svg');
+      const outputFileRelative = `./${path.relative(path.dirname(path.resolve(output)), path.resolve(outputFile))}`;
+      diagrams.push([outputFile, md]);
+      return `![diagram](${outputFileRelative})`;
+    });
+
+    if (diagrams.length) {
+      info(`Found ${diagrams.length} mermaid charts in Markdown input`);
+      await Promise.all(diagrams.map(async ([imgFile, md]) => {
+          await parseMMD(browser, md, imgFile);
+          info(` ✅ ${imgFile}`);
         })
       );
     } else {
       info(`No mermaid charts found in Markdown input`);
+    }
+
+    if(/\.md$/.test(output)) {
+      await fs.promises.writeFile(output, outDefinition, 'utf-8');
+      info(` ✅ ${output}`);
     }
   } else {
     info(`Generating single mermaid chart`);

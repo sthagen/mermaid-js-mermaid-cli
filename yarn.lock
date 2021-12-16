@@ -1816,9 +1816,10 @@ delaunator@5:
   dependencies:
     robust-predicates "^3.0.0"
 
-devtools-protocol@0.0.901419:
-  version "0.0.901419"
-  resolved "https://registry.yarnpkg.com/devtools-protocol/-/devtools-protocol-0.0.901419.tgz#79b5459c48fe7e1c5563c02bd72f8fec3e0cebcd"
+devtools-protocol@0.0.937139:
+  version "0.0.937139"
+  resolved "https://registry.yarnpkg.com/devtools-protocol/-/devtools-protocol-0.0.937139.tgz#bdee3751fdfdb81cb701fd3afa94b1065dafafcf"
+  integrity sha512-daj+rzR3QSxsPRy5vjjthn58axO8c11j58uY0lG5vvlJk/EiOdCWOptGdkXDjtuRHr78emKq0udHCXM4trhoDQ==
 
 doctrine@^2.1.0:
   version "2.1.0"
@@ -2723,9 +2724,9 @@ make-dir@^2.1.0:
     semver "^5.6.0"
 
 mermaid@^8.9.0:
-  version "8.13.4"
-  resolved "https://registry.yarnpkg.com/mermaid/-/mermaid-8.13.4.tgz#924cb85f39380285e0a99f245c66cfa61014a2e1"
-  integrity sha512-zdWtsXabVy1PEAE25Jkm4zbTDlQe8rqNlTMq2B3j+D+NxDskJEY5OsgalarvNLsw+b5xFa1a8D1xcm/PijrDow==
+  version "8.13.5"
+  resolved "https://registry.yarnpkg.com/mermaid/-/mermaid-8.13.5.tgz#9378d702fa393bc598ea3b5baf378af0fde75573"
+  integrity sha512-xLINkCQqZZfqDaLpQVy9BOsws8jT6sLBE2ympDEg4G2uvUu1n61j/h3OFDaA2N4dpZyN7q2pAYkDQ4yywruivA==
   dependencies:
     "@braintree/sanitize-url" "^3.1.0"
     d3 "^7.0.0"
@@ -3045,13 +3046,13 @@ punycode@^2.1.0:
   version "2.1.1"
   resolved "https://registry.npmjs.org/punycode/-/punycode-2.1.1.tgz"
 
-puppeteer@^11.0.0:
-  version "11.0.0"
-  resolved "https://registry.yarnpkg.com/puppeteer/-/puppeteer-11.0.0.tgz#0808719c38e15315ecc1b1c28911f1c9054d201f"
-  integrity sha512-6rPFqN1ABjn4shgOICGDBITTRV09EjXVqhDERBDKwCLz0UyBxeeBH6Ay0vQUJ84VACmlxwzOIzVEJXThcF3aNg==
+puppeteer@^13.0.0:
+  version "13.0.0"
+  resolved "https://registry.yarnpkg.com/puppeteer/-/puppeteer-13.0.0.tgz#f241d9bbbe5c8388da922f4f6ea3f84866e17f81"
+  integrity sha512-kZfGAieIVSo4bFqYuvY2KvhgP9txzmPbbnpZIzLlfdt8nEu9evXEwsbBt1BHocVQM4fJmCiS+FRyw7c8aWadNg==
   dependencies:
     debug "4.3.2"
-    devtools-protocol "0.0.901419"
+    devtools-protocol "0.0.937139"
     extract-zip "2.0.1"
     https-proxy-agent "5.0.0"
     node-fetch "2.6.5"
