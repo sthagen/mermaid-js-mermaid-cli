@@ -79,6 +79,12 @@ mmdc -h
 docker pull minlag/mermaid-cli
 ```
 
+or pull from Github Container Registry
+
+```sh 
+docker pull ghcr.io/mermaid-js/mermaid-cli/mermaid-cli
+```
+
 or e.g. version 8.8.0
 
 ```sh
