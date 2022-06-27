@@ -9,7 +9,7 @@ import puppeteer from 'puppeteer'
 import pkg from './package.json'
 
 const error = message => {
-  console.log(chalk.red(`\n${message}\n`))
+  console.error(chalk.red(`\n${message}\n`))
   process.exit(1)
 }
 
@@ -160,7 +160,7 @@ const parseMMD = async (browser, definition, output) => {
     }
 
     try {
-      window.mermaid.init(undefined, container)
+      window.mermaid.initThrowsErrors(undefined, container)
       return { status: 'success' };
     } catch (error) {
       return { status: 'error', error, message: error.message };
@@ -180,8 +180,8 @@ const parseMMD = async (browser, definition, output) => {
       }
       return container.innerHTML
     }, backgroundColor)
-    const svg_xml = convertToValidXML(svg)
-    fs.writeFileSync(output, svg_xml)
+    const svgXML = convertToValidXML(svg)
+    fs.writeFileSync(output, svgXML)
   } else if (output.endsWith('png')) {
     const clip = await page.$eval('svg', svg => {
       const react = svg.getBoundingClientRect()
