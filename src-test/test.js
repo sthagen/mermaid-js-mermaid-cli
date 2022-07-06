@@ -1,36 +1,34 @@
 "use strict";
 
 const fs = require("fs/promises");
-const { execSync, spawnSync, execFile } = require("child_process");
+// Can't use async to load workflow entries, see https://github.com/facebook/jest/issues/2235
+const {readdirSync} = require("fs");
+const { exec, execFile } = require("child_process");
 
 // Joins together directory/file names in a OS independent way
 const {join} = require("path");
 const {promisify} = require("util");
+
+// optional (automatically added by jest), but useful to have for your code editor/autocomplete
+const { expect, beforeAll, describe, test } = require("@jest/globals");
 
 const workflows = ["test-positive", "test-negative"];
 const out = "test-output";
 
 /**
  * Process workflow from stdin into specified format file
+ *
+ * @param {string} workflow - Workflow folder.
+ * @param {string} file - Name of mermaid input file relative to workflow folder.
+ * @param {"svg" | "pdf" | "png" | "md"} format - Format of output file.
+ * @throws {Error} if mmdc fails to launch, or if it has exitCode != 0
  */
 async function compileDiagramFromStdin(workflow, file, format) {
-  return new Promise(function (resolve, reject) {
-    try {
-      const result = file.replace(/\.(?:mmd|md)$/, "-stdin." + format);
-      // eslint-disable-next-line no-console
-      console.warn(`Compiling ${file} into ${result}`);
-      execSync(`cat ${workflow}/${file} | \
-        node index.bundle.js -o ${out}/${result} -c ${workflow}/config.json`, {
-          "encoding": "utf8", // execSync has buffer as default, unlike exec
-        });
-
-      resolve();
-    } catch (err) {
-      console.warn(`${file}: child process failed with error: ${err.message}`);
-
-      reject(err);
-    }
-  });
+  const result = file.replace(/\.(?:mmd|md)$/, "-stdin." + format);
+  // exec will throw with stderr if there is a non-zero exit code
+  return await promisify(exec)(`cat ${workflow}/${file} | \
+    node index.bundle.js -o ${out}/${result} -c ${workflow}/config.json`
+  );
 }
 
 /**
@@ -38,17 +36,14 @@ async function compileDiagramFromStdin(workflow, file, format) {
  *
  * @param {string} workflow - Workflow folder.
  * @param {string} file - Name of mermaid input file relative to workflow folder.
- * @param {"svg" | "pdf" | "png"} format - Format of output file.
+ * @param {"svg" | "pdf" | "png" | "md"} format - Format of output file.
  * @param {Object} [options] - Optional options.
  * @param {string} [options.puppeteerConfigFile] - If set, puppeteerConfigFile.
  * Must be relative to workflow folder.
  * @throws {Error} if mmdc fails to launch, or if it has exitCode != 0
  */
 async function compileDiagram(workflow, file, format, {puppeteerConfigFile} = {}) {
-  return new Promise(function(resolve, reject) {
     const result = file.replace(/\.(?:mmd|md)$/, "." + format);
-    // eslint-disable-next-line no-console
-    console.warn(`Compiling ${file} into ${result}`);
 
     const args = [
       "index.bundle.js",
@@ -66,137 +61,75 @@ async function compileDiagram(workflow, file, format, {puppeteerConfigFile} = {}
       args.push("--puppeteerConfigFile", join(workflow, puppeteerConfigFile));
     }
 
-    const child = spawnSync("node", args, { timeout: 5000 });
+    // execFile will throw with stderr if there is a non-zero exit code
+    const output = await promisify(execFile)("node", args);
 
-    const stdout = child.stdout.toString('utf8').trim()
-    if (stdout !== "") {
-      console.info(stdout)
+    if (output.stderr) { // should never happen, so log it if it does happen
+      // eslint-disable-next-line no-console
+      console.warn(`Running ${args} succeeded but output the following to stderr: ${output.stderr}`);
     }
-    const stderr = child.stderr.toString('utf8').trim()
-    if (stderr !== "") {
-      console.warn(stderr)
-    }
-
-    if (child.status !== 0 || child.error) {
-      reject(new Error(`${file}: child process exited with code ${child.status}, error ${child.error}`));
-    } else {
-      resolve(child.status);
-    }
-  });
+    return output;
 }
 
-/**
- * Process all workflows into files
- */
-async function compileAll() {
-  await fs.mkdir(out, { recursive: true });
+describe("mermaid-cli", () => {
+  beforeAll(async() => {
+    await fs.mkdir(out, { recursive: true });
+  });
 
-  await Promise.all(workflows.map(async(workflow) => {
-    const files = await fs.readdir(workflow);
-    await Promise.all(
-        files.map(async file => {
-          if (!(file.endsWith(".mmd") | /\.md$/.test(file)) && file !== 'markdown-output.out.md') {
-            return Promise.resolve();
-          }
-          let resultP;
-          if (file === 'markdown-output.md') {
-            resultP = compileDiagram(workflow, file, "out.md");
+  // 20 second timeout, this needs to be set higher than normal since CI is slow
+  const timeout = 20000;
+
+  describe.each(workflows)("testing workflow %s", (workflow) => {
+    // Can't use async to load workflow entries, see https://github.com/facebook/jest/issues/2235
+    for (const file of readdirSync(workflow)) {
+      // only test .md and .mmd files in workflow
+      if (!(file.endsWith(".mmd") | /\.md$/.test(file))) {
+        continue;
+      }
+      const formats = ["png", "svg", "pdf"];
+      if (/\.md$/.test(file)) {
+        formats.push("md");
+      }
+      const shouldError = /expect-error/.test(file);
+      test.concurrent.each(formats)(`${shouldError ? "should fail": "should compile"} ${file} to format %s`, async(format) => {
+        const promise = compileDiagram(workflow, file, format);
+        if (shouldError) {
+          await expect(promise).rejects.toThrow();
+        } else {
+          await promise;
+        }
+      }, timeout);
+      if (!/\.md$/.test(file)) {
+        // currently, piping markdown through stdin is not supported
+        // as mermaid-cli has no idea it's markdown, not mermaid code
+        test.concurrent.each(formats)(`${shouldError ? "should fail": "should compile"} ${file} from stdin to format %s`,
+          async(format) => {
+          const promise = compileDiagramFromStdin(workflow, file, format);
+          if (shouldError) {
+            await expect(promise).rejects.toThrow();
           } else {
-            resultP = compileDiagram(workflow, file, "svg")
-              .then(() => compileDiagram(workflow, file, "png"));
+            await promise;
           }
-          const expectError = /expect-error/.test(file);
-          if (!expectError) return resultP;
-          try {
-            await resultP;
-          } catch (err) {
-            console.log(`✅ compiling ${file} produced an error, which is well`);
-            return;
-          }
-          throw new Error(`Expected ${file} to fail, but it succeeded`);
-        })
-    )
-  }))
-}
-
-/**
- * Process all workflows for stdin into files
- */
-async function compileAllStdin() {
-  await fs.mkdir(out, { recursive: true });
-
-  await Promise.all(workflows.map(async(workflow) => {
-    const files = await fs.readdir(workflow);
-    await Promise.all(
-        files.map(async file => {
-          // currently, piping markdown through stdin is not supported
-          // as mermaid-cli has no idea it's markdown, not mermaid code
-          if (!(file.endsWith(".mmd"))) {
-            return `Skipping ${file}, as it does not end with .mmd`;
-          }
-          const expectError = /expect-error/.test(file);
-          const resultP = compileDiagramFromStdin(workflow, file, "svg")
-            .then(() => compileDiagramFromStdin(workflow, file, "png"));
-          if (!expectError) return resultP;
-          try {
-            await resultP;
-          } catch (err) {
-            console.log(`✅ compiling ${file} from stdin produced an error, which is well`);
-            return;
-          }
-          throw new Error(`Expected ${file} from stdin to fail, but it succeeded`);
-        })
-    )
-  }))
-}
-
-async function shouldErrorOnFailure() {
-  await fs.mkdir(out, { recursive: true });
-  await compileDiagram("test-positive", "sequence.mmd", "svg"); // should work with default puppeteerConfigFile
-  try {
-    await compileDiagram("test-positive", "sequence.mmd", "svg", {puppeteerConfigFile: "../test-negative/puppeteerTimeoutConfig.json"});
-  } catch (error) {
-    console.log(`compiling with invalid puppeteerConfigFile file produced an error, which is well`);
-    return;
-  }
-  throw new Error(`Expected compling invalid puppeteerConfigFile file to fail, but it succeeded`);
-}
-
-async function shouldErrorOnEmptyInput() {
-  try {
-    await promisify(execFile)('node', ['index.bundle.js'])
-  } catch (error) {
-    console.log(`✅compiling with no input produced an error, which is well`)
-    return
-  }
-  throw new Error('Expected compiling with no input to fail, but it succeeded')
-}
-
-module.exports = {
-  shouldErrorOnFailure,
-  shouldErrorOnEmptyInput,
-  compileAll,
-  compileAllStdin
-};
-
-if (require.main === module) {
-  shouldErrorOnEmptyInput().catch(err => {
-    console.warn("Compilation failed", err)
-    process.exit(1);
+        }, timeout);
+      }
+    }
   });
 
-  shouldErrorOnFailure().catch(err => {
-    console.warn("Compilation failed", err)
-    process.exit(1);
+  test("should error on mmdc failure", async() => {
+    // should work with default puppeteerConfigFile
+    await compileDiagram("test-positive", "sequence.mmd", "svg");
+    await expect(
+      compileDiagram("test-positive", "sequence.mmd", "svg", {puppeteerConfigFile: "../test-negative/puppeteerTimeoutConfig.json"})
+    ).rejects.toThrow("TimeoutError: Timed out after 1 ms");
   });
 
-  compileAll().catch(err => {
-    console.warn("Compilation failed", err)
-    process.exit(1);
+  test("should error on missing input", async() => {
+    await expect(promisify(execFile)('node', ['index.bundle.js'])).rejects.toThrow();
   });
 
-  compileAllStdin().catch(err => {
-    console.warn("Compilation failed", err)
-    process.exit(1);
+  test("should error on mermaid syntax error", async() => {
+    await expect(
+      compileDiagram("test-negative", "invalid.expect-error.mmd", "svg")
+    ).rejects.toThrow("Parse error on line 2");
   });
-}
+});
