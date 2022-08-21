@@ -4,24 +4,25 @@
   "description": "Command-line interface for mermaid",
   "license": "MIT",
   "repository": "git@github.com:mermaid-js/mermaid-cli.git",
+  "type": "module",
   "author": "Tyler Long <tyler4long@gmail.com>",
   "bin": {
-    "mmdc": "./index.bundle.js"
+    "mmdc": "./src/cli.js"
   },
+  "engines": {
+    "node": ">=14.1.0"
+  },
+  "exports": "./src/index.js",
   "scripts": {
     "upgrade": "yarn-upgrade-all && source copy_modules.sh",
-    "prepublishOnly": "babel ./src/index.js --out-file ./index.bundle.js",
-    "test": "jest"
+    "test": "yarn node --experimental-vm-modules $(yarn bin jest)"
   },
   "dependencies": {
-    "chalk": "^4.1.0",
+    "chalk": "^5.0.1",
     "commander": "^9.0.0",
-    "puppeteer": "^15.1.1"
+    "puppeteer": "^16.1.0"
   },
   "devDependencies": {
-    "@babel/cli": "^7.0.0",
-    "@babel/core": "^7.0.0",
-    "@babel/preset-env": "^7.0.0",
     "@fortawesome/fontawesome-free-webfonts": "^1.0.9",
     "mermaid": "^9.1.2",
     "jest": "^28.1.2",
@@ -29,14 +30,14 @@
     "yarn-upgrade-all": "^0.7.0"
   },
   "files": [
-    "index.bundle.js",
+    "src/",
     "mermaid.min.js",
     "index.html",
     "fontawesome/*"
   ],
-  "standard": {
-    "ignore": [
-      "index.bundle.js"
-    ]
+  "jest": {
+    "moduleNameMapper": {
+      "#(.*)": "<rootDir>/node_modules/$1"
+    }
   }
 }
