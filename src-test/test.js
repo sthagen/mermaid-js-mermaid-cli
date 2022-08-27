@@ -13,8 +13,8 @@ import { expect, beforeAll, afterAll, describe, test } from '@jest/globals'
 import { run, parseMMD } from '../src/index.js'
 import puppeteer from 'puppeteer'
 
-const workflows = ["test-positive", "test-negative"];
-const out = "test-output";
+const workflows = ['test-positive', 'test-negative']
+const out = 'test-output'
 
 /**
  * Process workflow from stdin into specified format file
@@ -24,12 +24,12 @@ const out = "test-output";
  * @param {"svg" | "pdf" | "png" | "md"} format - Format of output file.
  * @throws {Error} if mmdc fails to launch, or if it has exitCode != 0
  */
-async function compileDiagramFromStdin(workflow, file, format) {
-  const result = file.replace(/\.(?:mmd|md)$/, "-stdin." + format);
+async function compileDiagramFromStdin (workflow, file, format) {
+  const result = file.replace(/\.(?:mmd|md)$/, '-stdin.' + format)
   // exec will throw with stderr if there is a non-zero exit code
   return await promisify(exec)(`cat ${workflow}/${file} | \
     node src/cli.js -o ${out}/${result} -c ${workflow}/config.json`
-  );
+  )
 }
 
 /**
@@ -43,33 +43,33 @@ async function compileDiagramFromStdin(workflow, file, format) {
  * Must be relative to workflow folder.
  * @throws {Error} if mmdc fails to launch, or if it has exitCode != 0
  */
-async function compileDiagram(workflow, file, format, {puppeteerConfigFile} = {}) {
-    const result = file.replace(/\.(?:mmd|md)$/, "." + format);
+async function compileDiagram (workflow, file, format, { puppeteerConfigFile } = {}) {
+  const result = file.replace(/\.(?:mmd|md)$/, '.' + format)
 
-    const args = [
-      "src/cli.js",
-      "-i",
-      join(workflow, file),
-      "-o",
-      out + "/" + result,
-      "-c",
-      join(workflow, "config.json"),
-      "-b",
-      "lightgray"
-    ];
+  const args = [
+    'src/cli.js',
+    '-i',
+    join(workflow, file),
+    '-o',
+    out + '/' + result,
+    '-c',
+    join(workflow, 'config.json'),
+    '-b',
+    'lightgray'
+  ]
 
-    if (puppeteerConfigFile) {
-      args.push("--puppeteerConfigFile", join(workflow, puppeteerConfigFile));
-    }
+  if (puppeteerConfigFile) {
+    args.push('--puppeteerConfigFile', join(workflow, puppeteerConfigFile))
+  }
 
-    // execFile will throw with stderr if there is a non-zero exit code
-    const output = await promisify(execFile)("node", args);
+  // execFile will throw with stderr if there is a non-zero exit code
+  const output = await promisify(execFile)('node', args)
 
-    if (output.stderr) { // should never happen, so log it if it does happen
-      // eslint-disable-next-line no-console
-      console.warn(`Running ${args} succeeded but output the following to stderr: ${output.stderr}`);
-    }
-    return output;
+  if (output.stderr) { // should never happen, so log it if it does happen
+    // eslint-disable-next-line no-console
+    console.warn(`Running ${args} succeeded but output the following to stderr: ${output.stderr}`)
+  }
+  return output
 }
 
 /**
@@ -92,66 +92,76 @@ function expectBytesAreFormat (bytes, fileType) {
   }
 }
 
+let browser
+beforeAll(async () => {
+  browser = await puppeteer.launch()
+})
+afterAll(async () => {
+  if (browser) {
+    await browser.close()
+  }
+})
+
 // 30 second timeout, this needs to be set higher than normal since CI is slow
 const timeout = 30000
 
-describe("mermaid-cli", () => {
-  beforeAll(async() => {
-    await fs.mkdir(out, { recursive: true });
-  });
+describe('mermaid-cli', () => {
+  beforeAll(async () => {
+    await fs.mkdir(out, { recursive: true })
+  })
 
-  describe.each(workflows)("testing workflow %s", (workflow) => {
+  describe.each(workflows)('testing workflow %s', (workflow) => {
     // Can't use async to load workflow entries, see https://github.com/facebook/jest/issues/2235
     for (const file of readdirSync(workflow)) {
       // only test .md and .mmd files in workflow
-      if (!(file.endsWith(".mmd") | /\.md$/.test(file))) {
-        continue;
+      if (!(file.endsWith('.mmd') | /\.md$/.test(file))) {
+        continue
       }
-      const formats = ["png", "svg", "pdf"];
+      const formats = ['png', 'svg', 'pdf']
       if (/\.md$/.test(file)) {
-        formats.push("md");
+        formats.push('md')
       }
-      const shouldError = /expect-error/.test(file);
-      test.concurrent.each(formats)(`${shouldError ? "should fail": "should compile"} ${file} to format %s`, async(format) => {
-        const promise = compileDiagram(workflow, file, format);
+      const shouldError = /expect-error/.test(file)
+      test.concurrent.each(formats)(`${shouldError ? 'should fail' : 'should compile'} ${file} to format %s`, async (format) => {
+        const promise = compileDiagram(workflow, file, format)
         if (shouldError) {
-          await expect(promise).rejects.toThrow();
+          await expect(promise).rejects.toThrow()
         } else {
-          await promise;
+          await promise
         }
-      }, timeout);
+      }, timeout)
       if (!/\.md$/.test(file)) {
         // currently, piping markdown through stdin is not supported
         // as mermaid-cli has no idea it's markdown, not mermaid code
-        test.concurrent.each(formats)(`${shouldError ? "should fail": "should compile"} ${file} from stdin to format %s`,
-          async(format) => {
-          const promise = compileDiagramFromStdin(workflow, file, format);
-          if (shouldError) {
-            await expect(promise).rejects.toThrow();
-          } else {
-            await promise;
-          }
-        }, timeout);
+        test.concurrent.each(formats)(`${shouldError ? 'should fail' : 'should compile'} ${file} from stdin to format %s`,
+          async (format) => {
+            const promise = compileDiagramFromStdin(workflow, file, format)
+            if (shouldError) {
+              await expect(promise).rejects.toThrow()
+            } else {
+              await promise
+            }
+          }, timeout)
       }
     }
-  });
+  })
 
-  test("should error on mmdc failure", async() => {
+  test('should error on mmdc failure', async () => {
     // should work with default puppeteerConfigFile
-    await compileDiagram("test-positive", "sequence.mmd", "svg");
+    await compileDiagram('test-positive', 'sequence.mmd', 'svg')
     await expect(
-      compileDiagram("test-positive", "sequence.mmd", "svg", {puppeteerConfigFile: "../test-negative/puppeteerTimeoutConfig.json"})
-    ).rejects.toThrow("TimeoutError: Timed out after 1 ms");
+      compileDiagram('test-positive', 'sequence.mmd', 'svg', { puppeteerConfigFile: '../test-negative/puppeteerTimeoutConfig.json' })
+    ).rejects.toThrow('TimeoutError: Timed out after 1 ms')
   }, timeout)
 
-  test("should error on missing input", async() => {
-    await expect(promisify(execFile)('node', ['src/cli.js'])).rejects.toThrow();
+  test('should error on missing input', async () => {
+    await expect(promisify(execFile)('node', ['src/cli.js'])).rejects.toThrow()
   }, timeout)
 
-  test("should error on mermaid syntax error", async() => {
+  test('should error on mermaid syntax error', async () => {
     await expect(
-      compileDiagram("test-negative", "invalid.expect-error.mmd", "svg")
-    ).rejects.toThrow("Parse error on line 2");
+      compileDiagram('test-negative', 'invalid.expect-error.mmd', 'svg')
+    ).rejects.toThrow('Parse error on line 2')
   }, timeout)
 
   test('should write multiple SVGs for default .md input by default', async () => {
@@ -166,7 +176,28 @@ describe("mermaid-cli", () => {
       expectBytesAreFormat(await fs.readFile(file), 'svg')
     }))
   }, timeout)
-});
+
+  test.concurrent.each(['svg', 'png', 'pdf'])('should set red background to %s', async (format) => {
+    await promisify(execFile)('node', [
+      'src/cli.js', '-i', 'test-positive/flowchart1.mmd', '-o', `test-output/flowchart1-red-background.${format}`,
+      '--backgroundColor', 'red'
+    ])
+  }, timeout)
+
+  test.concurrent.each(['svg', 'png', 'pdf'])('should add css to %s', async (format) => {
+    await promisify(execFile)('node', [
+      'src/cli.js', '-i', 'test-positive/flowchart1.mmd', '-o', `test-output/flowchart1-with-css.${format}`,
+      // we want to add an SVG file to git, so make sure it's always the same
+      '--configFile', 'test-positive/config-deterministic.json',
+      '--cssFile', 'test-positive/flowchart1.css'
+    ])
+
+    if (format === 'svg') {
+      // this file is used in the README.md, so we want to keep it updated if possible
+      await fs.copyFile(`test-output/flowchart1-with-css.${format}`, 'docs/animated-flowchart.svg')
+    }
+  }, timeout)
+})
 
 describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
   describe('run()', () => {
@@ -234,15 +265,9 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
   })
 
   describe('parseMMD()', () => {
-    const browserPromise = puppeteer.launch()
-    afterAll(async () => {
-      const browser = await browserPromise
-      await browser.close()
-    })
-
     test('should return bytes from mmd', async () => {
       const mmdInput = 'graph TD;\n    nA-->B;\n'
-      const bytes = await parseMMD(await browserPromise, mmdInput, 'svg')
+      const bytes = await parseMMD(browser, mmdInput, 'svg')
       expect(bytes).toBeInstanceOf(Buffer)
       expectBytesAreFormat(bytes, 'svg')
     })
@@ -250,7 +275,7 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
     test('should throw exception for invalid mmd', async () => {
       const invalidMMDInput = 'this is not a valid mermaid file'
       expect(
-        parseMMD(await browserPromise, invalidMMDInput, 'svg')
+        parseMMD(browser, invalidMMDInput, 'svg')
       ).rejects.toThrow('Parse error')
     })
 
@@ -265,7 +290,7 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
         const shouldError = /expect-error/.test(file)
         test.concurrent.each(formats)(`${shouldError ? 'should fail' : 'should compile'} ${file} to format %s`, async (format) => {
           const mmd = await fs.readFile(join(workflow, file), { encoding: 'utf8' })
-          const promise = parseMMD(await browserPromise, mmd, format)
+          const promise = parseMMD(browser, mmd, format)
           if (shouldError) {
             await expect(promise).rejects.toThrow()
           } else {
