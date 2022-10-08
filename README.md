@@ -169,7 +169,9 @@ permission issues.
 `yarn global add @mermaid-js/mermaid-cli` or `npm install -g @mermaid-js/mermaid-cli`
 
 ## Install with [brew](https://brew.sh)
-
+This method of installation is no longer supported.
+For more details, see the [discussion](https://github.com/mermaid-js/mermaid-cli/issues/288)
+An old version of mermaid-cli can be installed with brew.
 ```
 brew install mermaid-cli
 ```
@@ -185,6 +187,7 @@ it installs (`mmdc`).  `npx -p @mermaid-js/mermaid-cli mmdc -h`
 
 1. [Linux sandbox issue](docs/linux-sandbox-issue.md)
 2. [Docker permission denied issue](docs/docker-permission-denied.md)
+3. [How to setup up mermaid to use already installed chromium?](docs/already-installed-chromium.md)
 
 ## For contributors
 
