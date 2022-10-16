@@ -185,6 +185,9 @@ async function parseMMD (...args) {
  */
 async function renderMermaid (browser, definition, outputFormat, { viewport, backgroundColor = 'white', mermaidConfig = {}, myCSS, pdfFit } = {}) {
   const page = await browser.newPage()
+  page.on('console', (msg) => {
+    console.log(msg.text())
+  })
   try {
     if (viewport) {
       await page.setViewport(viewport)
