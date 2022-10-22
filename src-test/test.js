@@ -186,6 +186,60 @@ describe('mermaid-cli', () => {
     }))
   }, timeout)
 
+  test('the .png extension should be added to .md files', async () => {
+    const expectedOutputFiles = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => join('test-positive', `mermaid.md-${i}.png`))
+    await Promise.all(expectedOutputFiles.map((file) => fs.rm(file, { force: true })))
+    await promisify(execFile)('node', ['src/cli.js', '-e', 'png', '-i', 'test-positive/mermaid.md'])
+
+    await Promise.all(expectedOutputFiles.map(async (file) => {
+      expectBytesAreFormat(await fs.readFile(file), 'png')
+    }))
+  }, timeout)
+
+  test('the .svg extension should be added to .md files', async () => {
+    const expectedOutputFiles = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => join('test-positive', `mermaid.md-${i}.svg`))
+    await Promise.all(expectedOutputFiles.map((file) => fs.rm(file, { force: true })))
+    await promisify(execFile)('node', ['src/cli.js', '-e', 'svg', '-i', 'test-positive/mermaid.md'])
+
+    await Promise.all(expectedOutputFiles.map(async (file) => {
+      expectBytesAreFormat(await fs.readFile(file), 'svg')
+    }))
+  }, timeout)
+
+  test('the .pdf extension should be added to .md files', async () => {
+    const expectedOutputFiles = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => join('test-positive', `mermaid.md-${i}.pdf`))
+    await Promise.all(expectedOutputFiles.map((file) => fs.rm(file, { force: true })))
+    await promisify(execFile)('node', ['src/cli.js', '-e', 'pdf', '-i', 'test-positive/mermaid.md'])
+
+    await Promise.all(expectedOutputFiles.map(async (file) => {
+      expectBytesAreFormat(await fs.readFile(file), 'pdf')
+    }))
+  }, timeout)
+
+  test('the extension .pdf should be added for .mmd file', async () => {
+    const expectedOutputFile = 'test-positive/flowchart1.mmd.pdf'
+    await fs.rm(expectedOutputFile, { force: true })
+    await promisify(execFile)('node', ['src/cli.js', '-e', 'pdf', '-i', 'test-positive/flowchart1.mmd'])
+
+    expectBytesAreFormat(await fs.readFile(expectedOutputFile), 'pdf')
+  }, timeout)
+
+  test('the extension .svg should be added for .mmd file', async () => {
+    const expectedOutputFile = 'test-positive/flowchart1.mmd.svg'
+    await fs.rm(expectedOutputFile, { force: true })
+    await promisify(execFile)('node', ['src/cli.js', '-e', 'svg', '-i', 'test-positive/flowchart1.mmd'])
+
+    expectBytesAreFormat(await fs.readFile(expectedOutputFile), 'svg')
+  }, timeout)
+
+  test('the extension .png should be added for .mmd file', async () => {
+    const expectedOutputFile = 'test-positive/flowchart1.mmd.png'
+    await fs.rm(expectedOutputFile, { force: true })
+    await promisify(execFile)('node', ['src/cli.js', '-e', 'png', '-i', 'test-positive/flowchart1.mmd'])
+
+    expectBytesAreFormat(await fs.readFile(expectedOutputFile), 'png')
+  }, timeout)
+
   test.concurrent.each(['svg', 'png', 'pdf'])('should set red background to %s', async (format) => {
     await promisify(execFile)('node', [
       'src/cli.js', '-i', 'test-positive/flowchart1.mmd', '-o', `test-output/flowchart1-red-background.${format}`,
