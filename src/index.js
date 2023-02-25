@@ -18,7 +18,7 @@ const error = message => {
 }
 
 const warn = message => {
-  console.log(chalk.yellow(`\n${message}\n`))
+  console.warn(chalk.yellow(`\n${message}\n`))
 }
 
 const checkConfigFile = file => {
@@ -26,8 +26,6 @@ const checkConfigFile = file => {
     error(`Configuration file "${file}" doesn't exist`)
   }
 }
-
-const inputPipedFromStdin = () => fs.fstatSync(0).isFIFO()
 
 const getInputData = async inputFile => new Promise((resolve, reject) => {
   // if an input file has been specified using '-i', it takes precedence over
@@ -84,7 +82,7 @@ async function cli () {
     .addOption(new Option('-t, --theme [theme]', 'Theme of the chart').choices(['default', 'forest', 'dark', 'neutral']).default('default'))
     .addOption(new Option('-w, --width [width]', 'Width of the page').argParser(parseCommanderInt).default(800))
     .addOption(new Option('-H, --height [height]', 'Height of the page').argParser(parseCommanderInt).default(600))
-    .option('-i, --input <input>', 'Input mermaid file. Files ending in .md will be treated as Markdown and all charts (e.g. ```mermaid (...)```) will be extracted and generated. Required.')
+    .option('-i, --input <input>', 'Input mermaid file. Files ending in .md will be treated as Markdown and all charts (e.g. ```mermaid (...)```) will be extracted and generated. Use `-` to read from stdin.')
     .option('-o, --output [output]', 'Output file. It should be either md, svg, png or pdf. Optional. Default: input + ".svg"')
     .addOption(new Option('-e, --outputFormat [format]', 'Output format for the generated image.').choices(['svg', 'png', 'pdf']).default(null, 'Loaded from the output file extension'))
     .addOption(new Option('-b, --backgroundColor [backgroundColor]', 'Background color for pngs/svgs (not pdfs). Example: transparent, red, \'#F0F0F0\'.').default('white'))
@@ -101,12 +99,15 @@ async function cli () {
   let { theme, width, height, input, output, outputFormat, backgroundColor, configFile, cssFile, puppeteerConfigFile, scale, pdfFit, quiet } = options
 
   // check input file
-  if (!(input || inputPipedFromStdin())) {
-    console.error(chalk.red('\nPlease specify input file: -i <input>\n'))
-    // Log to stderr, and return with error exitCode
-    commander.help({ error: true })
-  }
-  if (input && !fs.existsSync(input)) {
+  if (!input) {
+    warn('No input file specfied, reading from stdin. ' +
+      'If you want to specify an input file, please use `-i <input>.` ' +
+      'You can use `-i -` to read from stdin and to suppress this warning.'
+    )
+  } else if (input === '-') {
+    // `--input -` means read from stdin, but suppress the above warning
+    input = undefined
+  } else if (!fs.existsSync(input)) {
     error(`Input file "${input}" doesn't exist`)
   }
 
@@ -121,8 +122,8 @@ async function cli () {
       output = input ? (`${input}.svg`) : 'out.svg'
     }
   }
-  if (!/\.(?:svg|png|pdf|md)$/.test(output)) {
-    error('Output file must end with ".md", ".svg", ".png" or ".pdf"')
+  if (!/\.(?:svg|png|pdf|md|markdown)$/.test(output)) {
+    error('Output file must end with ".md"/".markdown", ".svg", ".png" or ".pdf"')
   }
   const outputDir = path.dirname(output)
   if (!fs.existsSync(outputDir)) {
@@ -346,10 +347,11 @@ function markdownImage ({ url, title, alt }) {
 /**
  * Renders a mermaid diagram or mermaid markdown file.
  *
- * @param {`${string}.md` | string} [input] - If this ends with `.md`, path to a markdown file containing mermaid.
+ * @param {`${string}.${"md" | "markdown"}` | string} [input] - If this ends with `.md`/`.markdown`,
+ * path to a markdown file containing mermaid.
  * If this is a string, loads the mermaid definition from the given file.
  * If this is `undefined`, loads the mermaid definition from stdin.
- * @param {`${string}.${"md" | "svg" | "png" | "pdf"}`} output - Path to the output file.
+ * @param {`${string}.${"md" | "markdown" | "svg" | "png" | "pdf"}`} output - Path to the output file.
  * @param {Object} [opts] - Options
  * @param {puppeteer.LaunchOptions} [opts.puppeteerConfig] - Puppeteer launch options.
  * @param {boolean} [opts.quiet] - If set, suppress log output.
@@ -372,7 +374,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
     if (!outputFormat) {
       outputFormat = path.extname(output).replace('.', '')
     }
-    if (outputFormat === 'md') {
+    if (outputFormat === 'md' || outputFormat === 'markdown') {
       // fallback to svg in case no outputFormat is given and output file is MD
       outputFormat = 'svg'
     }
@@ -381,7 +383,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
     }
 
     const definition = await getInputData(input)
-    if (/\.md$/.test(input)) {
+    if (/\.(md|markdown)$/.test(input)) {
       const imagePromises = []
       for (const mermaidCodeblockMatch of definition.matchAll(mermaidChartsInMarkdownRegexGlobal)) {
         const mermaidDefinition = mermaidCodeblockMatch[1]
@@ -391,7 +393,10 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
         //     I.e. if "out.png", use "out-1.png", "out-2.png", etc
         //   If it is an output `.md` file, use that to base .svg numbered diagrams on
         //     I.e. if "out.md". use "out-1.svg", "out-2.svg", etc
-        const outputFile = output.replace(/(\.(md|png|svg|pdf))$/, `-${imagePromises.length + 1}$1`).replace(/(\.md)$/, `.${outputFormat}`)
+        const outputFile = output.replace(
+          /(\.(md|markdown|png|svg|pdf))$/,
+          `-${imagePromises.length + 1}$1`
+        ).replace(/\.(md|markdown)$/, `.${outputFormat}`)
         const outputFileRelative = `./${path.relative(path.dirname(path.resolve(output)), path.resolve(outputFile))}`
 
         const imagePromise = (async () => {
@@ -416,7 +421,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
 
       const images = await Promise.all(imagePromises)
 
-      if (/\.md$/.test(output)) {
+      if (/\.(md|markdown)$/.test(output)) {
         const outDefinition = definition.replace(mermaidChartsInMarkdownRegexGlobal, (_mermaidMd) => {
           // pop first image from front of array
           const { url, title, alt } = images.shift()
