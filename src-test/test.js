@@ -180,7 +180,7 @@ describe('mermaid-cli', () => {
   test('should error on mermaid syntax error', async () => {
     await expect(
       compileDiagram('test-negative', 'invalid.expect-error.mmd', 'svg')
-    ).rejects.toThrow('Parse error on line 2')
+    ).rejects.toThrow('Error: Evaluation failed: Error: Diagram error not found.')
   }, timeout)
 
   test('should have 3 trailing spaces after ``` in test-positive/mermaid.md for case 9.', async () => {
@@ -190,6 +190,15 @@ describe('mermaid-cli', () => {
     const matches = data.match(regex)
     await expect(matches.length).toBeGreaterThan(0)
     await expect(matches[0].includes('```   ')).toBeTruthy()
+  }, timeout)
+
+  test('should have 5 trailing spaces after ```mermaid in test-positive/mermaid.md for case 9.', async () => {
+    // make sure that we don't accidentally delete the trailing spaces in test 9
+    const data = await fs.readFile('test-positive/mermaid.md', { encoding: 'utf8' })
+    const regex = /9\.\s+Should still find mermaid code even with trailing spaces after the(.+)do not delete the trailing spaces after the/sg
+    const matches = data.match(regex)
+    await expect(matches.length).toBeGreaterThan(0)
+    await expect(matches[0].includes('```mermaid     ')).toBeTruthy()
   }, timeout)
 
   test('should write multiple SVGs for default .md input by default', async () => {
@@ -398,7 +407,7 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
       const invalidMMDInput = 'this is not a valid mermaid file'
       expect(
         parseMMD(browser, invalidMMDInput, 'svg')
-      ).rejects.toThrow('Error: No diagram type detected')
+      ).rejects.toThrow('Evaluation failed: Error: Diagram error not found.')
     })
 
     describe.each(workflows)('testing workflow %s', (workflow) => {
