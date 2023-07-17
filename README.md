@@ -123,7 +123,7 @@ mmdc -h
 
 # Alternative installations
 
-## Use Docker:
+## Use Docker/Podman:
 
 ```sh
 docker pull minlag/mermaid-cli
@@ -148,6 +148,17 @@ the container to generate an SVG file as follows:
 ```sh
 docker run --rm -u `id -u`:`id -g` -v /path/to/diagrams:/data minlag/mermaid-cli -i diagram.mmd
 ```
+
+Or, if using [Podman](https://podman.io/), instead do:
+
+```sh
+podman run --userns keep-id --user ${UID} --rm -v /path/to/diagrams:/data:z ghcr.io/mermaid-js/mermaid-cli/mermaid-cli -i diagram.mmd
+```
+
+The key differences in the podman command versus the docker command are:
+
+- The addition of the `--userns keep-id` argument. This allows the container to keep the same UID as the current user's UID in the container namespace instead of mapping to a subuid. Docs can be found [here](https://docs.podman.io/en/latest/markdown/options/userns.container.html)
+- The addition of `:z` to the end of the volume mapping. This instructs podman to relabel the files in the volume with the SELinux label `container_file_t`, which allows processes in the container to access the files. See the "Labeling Volume Mounts" section [here](https://docs.podman.io/en/latest/markdown/podman-run.1.html#volume-v-source-volume-host-dir-container-dir-options) for more info.
 
 In previous version, the input files were mounted in `/home/mermaidcli`. You can
 restore this behaviour with the `--workdir` option:
