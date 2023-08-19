@@ -1,6 +1,6 @@
 {
   "name": "@mermaid-js/mermaid-cli",
-  "version": "10.3.0",
+  "version": "10.3.1",
   "description": "Command-line interface for mermaid",
   "license": "MIT",
   "repository": "git@github.com:mermaid-js/mermaid-cli.git",
@@ -38,9 +38,6 @@
     "vite-plugin-singlefile": "^0.13.1",
     "vite-svg-loader": "^4.0.0",
     "yarn-upgrade-all": "^0.7.0"
-  },
-  "resolutions": {
-    "antlr4": "~4.11.0"
   },
   "files": [
     "src/",
