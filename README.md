@@ -7,7 +7,7 @@
 [![This project is using Percy.io for visual regression testing.](https://percy.io/static/images/percy-badge.svg)](https://percy.io/Mermaid/mermaid-cli)
 [![Join our Slack!](https://img.shields.io/static/v1?message=join%20chat&color=9cf&logo=slack&label=slack)](https://join.slack.com/t/mermaid-talk/shared_invite/enQtNzc4NDIyNzk4OTAyLWVhYjQxOTI2OTg4YmE1ZmJkY2Y4MTU3ODliYmIwOTY3NDJlYjA0YjIyZTdkMDMyZTUwOGI0NjEzYmEwODcwOTE)
 
-This is a command-line interface (CLI) for [mermaid](https://mermaid-js.github.io/). It takes a mermaid definition file as input and generates an svg/png/pdf file as output.
+This is a command-line interface (CLI) for [mermaid](https://mermaid.js.org/). It takes a mermaid definition file as input and generates an svg/png/pdf file as output.
 
 ## Installation
 
@@ -44,7 +44,7 @@ The `--cssFile` option can be used to inline some custom CSS.
 
 Please see [./test-positive/flowchart1.css](test-positive/flowchart1.css) for an example of a CSS file that has animations.
 
-**Warning**: If you want to override `mermaid`'s [`themeCSS`](https://mermaid-js.github.io/mermaid/#/Setup?id=theme), we recommend instead adding `{"themeCSS": "..."})` to your mermaid `--configFile`. You may also need to use [`!important`](https://developer.mozilla.org/en-US/docs/Web/CSS/important) to override mermiad's `themeCSS`.
+**Warning**: If you want to override `mermaid`'s [`themeCSS`](https://mermaid.js.org/config/schema-docs/config.html#themecss), we recommend instead adding `{"themeCSS": "..."})` to your mermaid `--configFile`. You may also need to use [`!important`](https://developer.mozilla.org/en-US/docs/Web/CSS/important) to override mermiad's `themeCSS`.
 
 **Warning**: Inline CSS files may be blocked by your browser, depending on the [HTTP Content-Security-Policy header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy) of the website that hosts your SVG.
 
