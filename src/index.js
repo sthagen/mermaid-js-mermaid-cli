@@ -177,15 +177,14 @@ async function cli () {
     checkConfigFile(configFile)
     mermaidConfig = Object.assign(mermaidConfig, JSON.parse(fs.readFileSync(configFile, 'utf-8')))
   }
-  // @ts-expect-error Setting headless to `1` is not officially supported
+
   let puppeteerConfig = /** @type {import('puppeteer').PuppeteerLaunchOptions} */ ({
     /*
-     * `headless: 1` is not officially supported, but setting this to any
-     * non-`true` truthy value doesn't change any behavior, but it hides the
-     * Puppeteer old Headless deprecation warning,
-     * see https://github.com/argos-ci/jest-puppeteer/issues/553#issuecomment-1561826456
+     * `headless: 'shell'` is not officially supported in Puppeteer v19, v20, v21,
+     * but still works. In Puppeteer v22, it uses the `chrome-headless-shell` package,
+     * which is much faster than the regular headless mode.
      */
-    headless: 1
+    headless: 'shell'
   })
   if (puppeteerConfigFile) {
     checkConfigFile(puppeteerConfigFile)
@@ -224,30 +223,13 @@ async function cli () {
  */
 
 /**
- * Parse and render a mermaid diagram.
- *
- * @deprecated Prefer {@link renderMermaid}, as it also returns useful metadata.
- *
- * @param {import("puppeteer").Browser} browser - Puppeteer Browser
- * @param {string} definition - Mermaid diagram definition
- * @param {"svg" | "png" | "pdf"} outputFormat - Mermaid output format.
- * @param {ParseMDDOptions} [opt] - Options, see {@link ParseMDDOptions} for details.
- *
- * @returns {Promise<Buffer>} The output file in bytes.
- */
-async function parseMMD (browser, definition, outputFormat, opt) {
-  const { data } = await renderMermaid(browser, definition, outputFormat, opt)
-  return data
-}
-
-/**
  * Render a mermaid diagram.
  *
  * @param {import("puppeteer").Browser} browser - Puppeteer Browser
  * @param {string} definition - Mermaid diagram definition
  * @param {"svg" | "png" | "pdf"} outputFormat - Mermaid output format.
  * @param {ParseMDDOptions} [opt] - Options, see {@link ParseMDDOptions} for details.
- * @returns {Promise<{title: string | null, desc: string | null, data: Buffer}>} The output file in bytes,
+ * @returns {Promise<{title: string | null, desc: string | null, data: Uint8Array}>} The output file in bytes,
  * with optional metadata.
  */
 async function renderMermaid (browser, definition, outputFormat, { viewport, backgroundColor = 'white', mermaidConfig = {}, myCSS, pdfFit, svgId } = {}) {
@@ -274,10 +256,12 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
        * so that they get correctly bundled.
        * @property {import("mermaid")["default"]} mermaid Already imported mermaid instance
        * @property {import("@mermaid-js/mermaid-zenuml")["default"]} zenuml Already imported mermaid-zenuml instance
+       * @property {import("@mermaid-js/layout-elk")["default"]} elkLayouts Already imported mermaid-elkLayouts instance
        */
-      const { mermaid, zenuml } = /** @type {GlobalThisWithMermaid & typeof globalThis} */ (globalThis)
+      const { mermaid, zenuml, elkLayouts } = /** @type {GlobalThisWithMermaid & typeof globalThis} */ (globalThis)
 
       await mermaid.registerExternalDiagrams([zenuml])
+      mermaid.registerLayoutLoaders(elkLayouts)
       mermaid.initialize({ startOnLoad: false, ...mermaidConfig })
       // should throw an error if mmd diagram is invalid
       const { svg: svgText } = await mermaid.render(svgId || 'my-svg', definition, container)
@@ -512,7 +496,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
     } else {
       info('Generating single mermaid chart')
       browser = await puppeteer.launch(puppeteerConfig)
-      const data = await parseMMD(browser, definition, outputFormat, parseMMDOptions)
+      const { data } = await renderMermaid(browser, definition, outputFormat, parseMMDOptions)
       await output !== '/dev/stdout'
         ? fs.promises.writeFile(output, data)
         : process.stdout.write(data)
@@ -522,4 +506,4 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
   }
 }
 
-export { run, renderMermaid, parseMMD, cli, error }
+export { run, renderMermaid, cli, error }

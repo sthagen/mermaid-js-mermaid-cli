@@ -10,7 +10,7 @@
     "mmdc": "./src/cli.js"
   },
   "engines": {
-    "node": "^14.13 || >=16.0"
+    "node": "^18.19 || >=20.0"
   },
   "exports": {
     ".": {
@@ -24,21 +24,26 @@
   "scripts": {
     "prepare": "tsc && vite build",
     "prepack": "tsc && vite build",
-    "test": "standard && yarn node --experimental-vm-modules $(yarn bin jest)",
+    "test": "NODE_OPTIONS=\"$NODE_OPTIONS --experimental-vm-modules\" npx jest",
     "lint": "standard",
     "lint-fix": "standard --fix"
   },
   "dependencies": {
     "chalk": "^5.0.1",
-    "commander": "^10.0.0",
-    "mermaid": "^10.8.0",
-    "puppeteer": "^19.0.0"
+    "commander": "^12.1.0",
+    "mermaid": "^11.0.2"
+  },
+  "peerDependencies": {
+    "puppeteer": "^23"
   },
   "devDependencies": {
-    "@fortawesome/fontawesome-free": "^5.6.0",
+    "@fortawesome/fontawesome-free": "^6.5.2",
+    "@mermaid-js/layout-elk": "^0.1.2",
     "@mermaid-js/mermaid-zenuml": "^0.2.0",
-    "@tsconfig/node14": "^14.1.0",
+    "@tsconfig/node18": "^18.2.4",
+    "@types/node": "~18.19.31",
     "jest": "^29.0.1",
+    "puppeteer": "^23.1.1",
     "standard": "^17.0.0",
     "typescript": "^5.0.1-rc",
     "vite": "^4.0.3",
@@ -61,5 +66,6 @@
       "/dist/",
       "/dist-types/"
     ]
-  }
+  },
+  "packageManager": "npm@10.8.1"
 }

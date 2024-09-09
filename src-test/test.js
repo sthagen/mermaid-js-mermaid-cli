@@ -10,7 +10,7 @@ import { promisify } from 'util'
 // optional (automatically added by jest), but useful to have for your code editor/autocomplete
 import { expect, beforeAll, afterAll, describe, test } from '@jest/globals'
 
-import { run, renderMermaid, parseMMD } from '../src/index.js'
+import { run, renderMermaid } from '../src/index.js'
 import puppeteer from 'puppeteer'
 import { pipeline } from 'stream'
 
@@ -76,18 +76,18 @@ async function compileDiagram (workflow, file, format, { puppeteerConfigFile } =
 /**
  * Confirms the filetype of the given bytes
  *
- * @param {Buffer} bytes - The bytes of the file to check
+ * @param {Uint8Array} bytes - The bytes of the file to check
  * @param {"png"|"pdf"|"svg"} fileType - The filetype to check for
  */
 function expectBytesAreFormat (bytes, fileType) {
   switch (fileType) {
     // see https://en.wikipedia.org/wiki/List_of_file_signatures
     case 'png':
-      return expect(bytes.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+      return expect(new Uint8Array(bytes).subarray(0, 8)).toEqual(Uint8Array.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
     case 'pdf':
-      return expect(bytes.subarray(0, 5)).toEqual(Buffer.from('%PDF-', 'utf8'))
+      return expect(new Uint8Array(bytes).subarray(0, 5)).toEqual(Uint8Array.from(Buffer.from('%PDF-', 'utf8')))
     case 'svg':
-      return expect(bytes.subarray(0, 4)).toEqual(Buffer.from('<svg', 'utf8'))
+      return expect(new Uint8Array(bytes).subarray(0, 4)).toEqual(Uint8Array.from(Buffer.from('<svg', 'utf8')))
     default:
       throw new Error('Unsupported filetype')
   }
@@ -95,7 +95,7 @@ function expectBytesAreFormat (bytes, fileType) {
 
 let browser
 beforeAll(async () => {
-  browser = await puppeteer.launch()
+  browser = await puppeteer.launch({ headless: 'shell' })
 })
 afterAll(async () => {
   if (browser) {
@@ -200,7 +200,7 @@ describe('mermaid-cli', () => {
   test('should error on mermaid syntax error', async () => {
     await expect(
       compileDiagram('test-negative', 'invalid.expect-error.mmd', 'svg')
-    ).rejects.toThrow('Error: Evaluation failed: Error: Parse error on line 2:')
+    ).rejects.toThrow('Error: Parse error on line 2:')
   }, timeout)
 
   test('should have 3 trailing spaces after ``` in test-positive/mermaid.md for case 9.', async () => {
@@ -423,19 +423,19 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
     })
   })
 
-  describe('parseMMD()', () => {
+  describe('renderMermaid()', () => {
     test('should return bytes from mmd', async () => {
       const mmdInput = 'graph TD;\n    nA-->B;\n'
-      const bytes = await parseMMD(browser, mmdInput, 'svg')
-      expect(bytes).toBeInstanceOf(Buffer)
+      const { data: bytes } = await renderMermaid(browser, mmdInput, 'svg')
+      expect(bytes).toBeInstanceOf(Uint8Array)
       expectBytesAreFormat(bytes, 'svg')
     })
 
     test('should throw exception for invalid mmd', async () => {
       const invalidMMDInput = 'this is not a valid mermaid file'
       expect(
-        parseMMD(browser, invalidMMDInput, 'svg')
-      ).rejects.toThrow('Evaluation failed: UnknownDiagramError: No diagram type detected matching given configuration for text: this is not a valid mermaid file')
+        renderMermaid(browser, invalidMMDInput, 'svg')
+      ).rejects.toThrow('No diagram type detected matching given configuration for text: this is not a valid mermaid file')
     })
 
     describe.each(workflows)('testing workflow %s', (workflow) => {
@@ -449,19 +449,17 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
         const shouldError = /expect-error/.test(file)
         test.concurrent.each(formats)(`${shouldError ? 'should fail' : 'should compile'} ${file} to format %s`, async (format) => {
           const mmd = await fs.readFile(join(workflow, file), { encoding: 'utf8' })
-          const promise = parseMMD(browser, mmd, format)
+          const promise = renderMermaid(browser, mmd, format)
           if (shouldError) {
             await expect(promise).rejects.toThrow()
           } else {
-            const outputFileBytes = await promise
+            const { data: outputFileBytes } = await promise
             expectBytesAreFormat(outputFileBytes, format)
           }
         }, timeout)
       }
     })
-  })
 
-  describe('renderMermaid()', () => {
     test('should return title/desc from mmd', async () => {
       const mmdInput = 'graph TD;\n    accTitle: Hi\n    accDescr: World\n    nA-->B;\n'
       const result = await renderMermaid(browser, mmdInput, 'svg')

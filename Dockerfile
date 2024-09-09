@@ -1,7 +1,7 @@
 FROM node:alpine
 
 ENV CHROME_BIN="/usr/bin/chromium-browser" \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD="true"
+    PUPPETEER_SKIP_DOWNLOAD="true" 
 
 ARG VERSION
 
@@ -11,7 +11,7 @@ RUN chmod 755 install-dependencies.sh && /bin/sh install-dependencies.sh
 RUN adduser -D mermaidcli
 USER mermaidcli
 WORKDIR /home/mermaidcli
-RUN yarn add @mermaid-js/mermaid-cli@$VERSION
+RUN npm install @mermaid-js/mermaid-cli@$VERSION
 
 ADD puppeteer-config.json  /puppeteer-config.json
 
