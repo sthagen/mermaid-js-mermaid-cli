@@ -120,11 +120,12 @@ async function cli () {
     .option('-f, --pdfFit', 'Scale PDF to fit chart')
     .option('-q, --quiet', 'Suppress log output')
     .option('-p --puppeteerConfigFile [puppeteerConfigFile]', 'JSON configuration file for puppeteer.')
+    .option('--iconPacks <icons...>', 'Icon packs to use, e.g. @iconify-json/logos. These should be Iconfiy NPM packages that expose a icons.json file, see https://iconify.design/docs/icons/json.html. These will be downloaded from https://unkpg.com when needed.', [])
     .parse(process.argv)
 
   const options = commander.opts()
 
-  let { theme, width, height, input, output, outputFormat, backgroundColor, configFile, cssFile, svgId, puppeteerConfigFile, scale, pdfFit, quiet } = options
+  let { theme, width, height, input, output, outputFormat, backgroundColor, configFile, cssFile, svgId, puppeteerConfigFile, scale, pdfFit, quiet, iconPacks } = options
 
   // check input file
   if (!input) {
@@ -205,7 +206,7 @@ async function cli () {
       quiet,
       outputFormat,
       parseMMDOptions: {
-        mermaidConfig, backgroundColor, myCSS, pdfFit, viewport: { width, height, deviceScaleFactor: scale }, svgId
+        mermaidConfig, backgroundColor, myCSS, pdfFit, viewport: { width, height, deviceScaleFactor: scale }, svgId, iconPacks
       }
     }
   )
@@ -219,6 +220,7 @@ async function cli () {
  * @property {CSSStyleDeclaration["cssText"]} [myCSS] - Optional CSS text.
  * @property {boolean} [pdfFit] - If set, scale PDF to fit chart.
  * @property {string} [svgId] - The id attribute for the SVG element to be rendered.
+ * @property {string[]} [iconPacks] - Icon packages to use.
  */
 
 /**
@@ -231,7 +233,7 @@ async function cli () {
  * @returns {Promise<{title: string | null, desc: string | null, data: Uint8Array}>} The output file in bytes,
  * with optional metadata.
  */
-async function renderMermaid (browser, definition, outputFormat, { viewport, backgroundColor = 'white', mermaidConfig = {}, myCSS, pdfFit, svgId } = {}) {
+async function renderMermaid (browser, definition, outputFormat, { viewport, backgroundColor = 'white', mermaidConfig = {}, myCSS, pdfFit, svgId, iconPacks = [] } = {}) {
   const page = await browser.newPage()
   page.on('console', (msg) => {
     console.warn(msg.text())
@@ -249,7 +251,7 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
       page.addScriptTag({ path: mermaidIIFEPath }),
       page.addScriptTag({ path: zenumlIIFEPath })
     ])
-    const metadata = await page.$eval('#container', async (container, definition, mermaidConfig, myCSS, backgroundColor, svgId) => {
+    const metadata = await page.$eval('#container', async (container, definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks) => {
       await Promise.all(Array.from(document.fonts, (font) => font.load()))
 
       /**
@@ -264,6 +266,16 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
 
       await mermaid.registerExternalDiagrams([zenuml])
       mermaid.registerLayoutLoaders(elkLayouts)
+      // lazy load icon packs
+      mermaid.registerIconPacks(
+        iconPacks.map((icon) => ({
+          name: icon.split('/')[1],
+          loader: () =>
+            fetch(`https://unpkg.com/${icon}/icons.json`)
+              .then((res) => res.json())
+              .catch(() => error(`Failed to fetch icon: ${icon}`))
+        }))
+      )
       mermaid.initialize({ startOnLoad: false, ...mermaidConfig })
       // should throw an error if mmd diagram is invalid
       const { svg: svgText } = await mermaid.render(svgId || 'my-svg', definition, container)
@@ -302,7 +314,7 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
       return {
         title, desc
       }
-    }, definition, mermaidConfig, myCSS, backgroundColor, svgId)
+    }, definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks)
 
     if (outputFormat === 'svg') {
       const svgXML = await page.$eval('svg', (svg) => {
