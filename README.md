@@ -7,7 +7,7 @@
 [![This project is using Percy.io for visual regression testing.](https://percy.io/static/images/percy-badge.svg)](https://percy.io/Mermaid/mermaid-cli)
 [![Join our Slack!](https://img.shields.io/static/v1?message=join%20chat&color=9cf&logo=slack&label=slack)](https://join.slack.com/t/mermaid-talk/shared_invite/enQtNzc4NDIyNzk4OTAyLWVhYjQxOTI2OTg4YmE1ZmJkY2Y4MTU3ODliYmIwOTY3NDJlYjA0YjIyZTdkMDMyZTUwOGI0NjEzYmEwODcwOTE)
 
-This is a command-line interface (CLI) for [mermaid](https://mermaid.js.org/). It takes a mermaid definition file as input and generates an svg/png/pdf file as output.
+This is a command-line interface (CLI) for [mermaid](https://mermaid.js.org/). It takes a mermaid definition file as input and generates an SVG/PNG/PDF file as output.
 
 ## Installation
 
@@ -44,7 +44,7 @@ The `--cssFile` option can be used to inline some custom CSS.
 
 Please see [./test-positive/flowchart1.css](test-positive/flowchart1.css) for an example of a CSS file that has animations.
 
-**Warning**: If you want to override `mermaid`'s [`themeCSS`](https://mermaid.js.org/config/schema-docs/config.html#themecss), we recommend instead adding `{"themeCSS": "..."})` to your mermaid `--configFile`. You may also need to use [`!important`](https://developer.mozilla.org/en-US/docs/Web/CSS/important) to override mermiad's `themeCSS`.
+**Warning**: If you want to override `mermaid`'s [`themeCSS`](https://mermaid.js.org/config/schema-docs/config.html#themecss), we recommend instead adding `{"themeCSS": "..."})` to your mermaid `--configFile`. You may also need to use [`!important`](https://developer.mozilla.org/en-US/docs/Web/CSS/important) to override mermaid's `themeCSS`.
 
 **Warning**: Inline CSS files may be blocked by your browser, depending on the [HTTP Content-Security-Policy header](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy) of the website that hosts your SVG.
 
@@ -157,8 +157,8 @@ podman run --userns keep-id --user ${UID} --rm -v /path/to/diagrams:/data:z ghcr
 
 The key differences in the podman command versus the docker command are:
 
-- The addition of the `--userns keep-id` argument. This allows the container to keep the same UID as the current user's UID in the container namespace instead of mapping to a subuid. Docs can be found [here](https://docs.podman.io/en/latest/markdown/options/userns.container.html)
-- The addition of `:z` to the end of the volume mapping. This instructs podman to relabel the files in the volume with the SELinux label `container_file_t`, which allows processes in the container to access the files. See the "Labeling Volume Mounts" section [here](https://docs.podman.io/en/latest/markdown/podman-run.1.html#volume-v-source-volume-host-dir-container-dir-options) for more info.
+- The addition of the `--userns keep-id` argument. This allows the container to keep the same UID as the current user's UID in the container namespace instead of mapping to a subuid. To learn more, see the [`userns=mode` documentation](https://docs.podman.io/en/v4.4/markdown/options/userns.container.html).
+- The addition of `:z` to the end of the volume mapping. This instructs podman to relabel the files in the volume with the SELinux label `container_file_t`, which allows processes in the container to access the files. See the "Labeling Volume Mounts" section of [podman-run (1)](https://docs.podman.io/en/latest/markdown/podman-run.1.html#volume-v-source-volume-host-dir-container-dir-options) for more info.
 
 In previous version, the input files were mounted in `/home/mermaidcli`. You can
 restore this behaviour with the `--workdir` option:

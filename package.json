@@ -1,6 +1,6 @@
 {
   "name": "@mermaid-js/mermaid-cli",
-  "version": "11.4.2",
+  "version": "11.4.3",
   "description": "Command-line interface for mermaid",
   "license": "MIT",
   "repository": "git@github.com:mermaid-js/mermaid-cli.git",
@@ -32,7 +32,7 @@
   "dependencies": {
     "@mermaid-js/mermaid-zenuml": "^0.2.0",
     "chalk": "^5.0.1",
-    "commander": "^12.1.0",
+    "commander": "^13.1.0",
     "import-meta-resolve": "^4.1.0",
     "mermaid": "^11.0.2"
   },

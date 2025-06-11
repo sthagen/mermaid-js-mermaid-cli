@@ -97,7 +97,7 @@ async function getInputData (inputFile) {
 function parseCommanderInt (value, _unused) {
   const parsedValue = parseInt(value, 10)
   if (isNaN(parsedValue) || parsedValue < 1) {
-    throw new InvalidArgumentError('Not an positive integer.')
+    throw new InvalidArgumentError('Not a positive integer.')
   }
   return parsedValue
 }
@@ -120,7 +120,7 @@ async function cli () {
     .option('-f, --pdfFit', 'Scale PDF to fit chart')
     .option('-q, --quiet', 'Suppress log output')
     .option('-p --puppeteerConfigFile [puppeteerConfigFile]', 'JSON configuration file for puppeteer.')
-    .option('--iconPacks <icons...>', 'Icon packs to use, e.g. @iconify-json/logos. These should be Iconfiy NPM packages that expose a icons.json file, see https://iconify.design/docs/icons/json.html. These will be downloaded from https://unkpg.com when needed.', [])
+    .option('--iconPacks <icons...>', 'Icon packs to use, e.g. @iconify-json/logos. These should be Iconify NPM packages that expose a icons.json file, see https://iconify.design/docs/icons/json.html. These will be downloaded from https://unkpg.com when needed.', [])
     .parse(process.argv)
 
   const options = commander.opts()
@@ -158,7 +158,7 @@ async function cli () {
     if (!outputFormat) {
       outputFormat = 'svg'
       warn('No output format specified, using svg. ' +
-        'If you want to specify an output format and supress this warning, ' +
+        'If you want to specify an output format and suppress this warning, ' +
         'please use `-e <format>.` '
       )
     }
@@ -370,7 +370,7 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
 
 /**
  * @typedef {object} MarkdownImageProps Markdown image properties
- * Used to create an markdown image that looks like `![alt](url "title")`
+ * Used to create a markdown image that looks like `![alt](url "title")`
  * @property {string} url - Path to image.
  * @property {string} alt - Image alt text, required.
  * @property {string | null} [title] - Optional image title text.

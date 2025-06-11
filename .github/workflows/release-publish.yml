@@ -29,13 +29,13 @@ jobs:
         # `npm ci` automatically builds the package
         run: npm ci
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v3.1.11
+        uses: gittools/actions/gitversion/setup@v3.2.1
         with:
           versionSpec: "5.x"
 
       - name: Use GitVersion
         id: gitversion # step id used as reference for output values
-        uses: gittools/actions/gitversion/execute@v3.1.11
+        uses: gittools/actions/gitversion/execute@v3.2.1
 
       - name: Get release version
         run: echo "RELEASE_VERSION=${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_ENV
@@ -53,7 +53,7 @@ jobs:
 
       - name: The job has failed
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4.6.0
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: npm-logs
           path: /home/runner/.npm/_logs
@@ -103,7 +103,7 @@ jobs:
           git push --no-verify
 
       # For manual inspection of the generated artifacts
-      - uses: actions/upload-artifact@v4.6.0
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: output
           path: ./test-positive
