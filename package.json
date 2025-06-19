@@ -1,6 +1,6 @@
 {
   "name": "@mermaid-js/mermaid-cli",
-  "version": "11.4.3",
+  "version": "11.6.0",
   "description": "Command-line interface for mermaid",
   "license": "MIT",
   "repository": "git@github.com:mermaid-js/mermaid-cli.git",
@@ -25,6 +25,7 @@
     "prepare": "tsc && vite build",
     "prepack": "tsc && vite build",
     "test": "NODE_OPTIONS=\"$NODE_OPTIONS --experimental-vm-modules\" npx jest",
+    "test:cli": "bash run-tests.sh test-positive",
     "version": "node scripts/version.js",
     "lint": "standard",
     "lint-fix": "standard --fix"
