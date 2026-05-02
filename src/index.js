@@ -6,17 +6,18 @@ import path from 'path'
 import puppeteer from 'puppeteer'
 import url from 'url'
 import { version } from './version.js'
+import { Interceptor } from './puppeteerIntercept.js'
 
 // __dirname is not available in ESM modules by default
 const __dirname = url.fileURLToPath(new url.URL('.', import.meta.url))
 
 /**
- * Mermaid.js IFFE path.
- *
- * Importing this in a browser adds a global `mermaid` object.
+ * ESM bundles. Our interceptor doesn't support loading ESM modules that load
+ * other modules using relative paths, so these have to no `dependencies`.
  */
-const mermaidIIFEPath = path.resolve(path.dirname(url.fileURLToPath(resolve('mermaid', import.meta.url))), 'mermaid.js')
-const zenumlIIFEPath = path.resolve(path.dirname(url.fileURLToPath(resolve('@mermaid-js/mermaid-zenuml', import.meta.url))), 'mermaid-zenuml.js')
+const mermaidESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('mermaid', import.meta.url))), 'mermaid.esm.mjs')
+const elkESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('@mermaid-js/layout-elk', import.meta.url))), 'mermaid-layout-elk.esm.mjs')
+const zenumlESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('@mermaid-js/mermaid-zenuml', import.meta.url))), 'mermaid-zenuml.esm.mjs')
 
 /**
  * Prints an error to stderr, then closes with exit code 1
@@ -189,7 +190,7 @@ async function cli () {
     mermaidConfig = Object.assign(mermaidConfig, JSON.parse(fs.readFileSync(configFile, 'utf-8')))
   }
 
-  let puppeteerConfig = /** @type {import('puppeteer').PuppeteerLaunchOptions} */ ({
+  let puppeteerConfig = /** @type {import('puppeteer').LaunchOptions} */ ({
     /*
      * `headless: 'shell'` is not officially supported in Puppeteer v19, v20, v21,
      * but still works. In Puppeteer v22, it uses the `chrome-headless-shell` package,
@@ -259,22 +260,20 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
     await page.$eval('body', (body, backgroundColor) => {
       body.style.background = backgroundColor
     }, backgroundColor)
-    await Promise.all([
-      page.addScriptTag({ path: mermaidIIFEPath }),
-      page.addScriptTag({ path: zenumlIIFEPath })
-    ])
-    const metadata = await page.$eval('#container', async (container, definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls) => {
-      await Promise.all(Array.from(document.fonts, (font) => font.load()))
 
-      /**
-       * @typedef {Object} GlobalThisWithMermaid
-       * We've already imported these modules in our `index.html` file (or by running `page.addScriptTag`),
-       * so that they get correctly bundled.
-       * @property {import("mermaid")["default"]} mermaid Already imported mermaid instance
-       * @property {import("@mermaid-js/mermaid-zenuml")["default"]} mermaid-zenuml Already imported mermaid-zenuml instance
-       * @property {import("@mermaid-js/layout-elk")["default"]} elkLayouts Already imported mermaid-elkLayouts instance
-       */
-      const { mermaid, 'mermaid-zenuml': zenuml, elkLayouts } = /** @type {GlobalThisWithMermaid & typeof globalThis} */ (globalThis)
+    const interceptor = new Interceptor()
+    const mermaidUrl = await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(mermaidESMPath))
+    const elkUrl = await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(elkESMPath))
+    const zenumlUrl = await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(zenumlESMPath))
+
+    page.on('request', interceptor.interceptRequestHandler)
+    await page.setRequestInterception(true)
+
+    const metadata = await page.$eval('#container', async (container, { definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls, elkUrl, mermaidUrl, zenumlUrl }) => {
+      const { default: mermaid } = await import(mermaidUrl)
+      const { default: elkLayouts } = await import(elkUrl)
+      const { default: zenuml } = await import(zenumlUrl)
+      await Promise.all(Array.from(document.fonts, (font) => font.load()))
 
       await mermaid.registerExternalDiagrams([zenuml])
       mermaid.registerLayoutLoaders(elkLayouts)
@@ -291,22 +290,21 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
       )
 
       mermaid.registerIconPacks(
-        iconPacksNamesAndUrls.map((iconPackInfo) => 
-          {
-            var packName = iconPackInfo.split('#')[0];
-            var packUrl = iconPackInfo.split('#')[1];
+        iconPacksNamesAndUrls.map((iconPackInfo) => {
+          const packName = iconPackInfo.split('#')[0]
+          const packUrl = iconPackInfo.split('#')[1]
 
-            return ({
-              name: packName,
-              loader: () =>
-                fetch(packUrl)
-                  .then((res) => res.json())
-                  .catch(() => {
-                    error(`Failed to fetch icon: ${iconPackInfo}`);
-                  })
-              }
-            )
+          return ({
+            name: packName,
+            loader: () =>
+              fetch(packUrl)
+                .then((res) => res.json())
+                .catch(() => {
+                  error(`Failed to fetch icon: ${iconPackInfo}`)
+                })
           }
+          )
+        }
         )
       )
       mermaid.initialize({ startOnLoad: false, ...mermaidConfig })
@@ -347,7 +345,7 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
       return {
         title, desc
       }
-    }, definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls)
+    }, { definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls, elkUrl, mermaidUrl, zenumlUrl })
 
     if (outputFormat === 'svg') {
       const svgXML = await page.$eval('svg', (svg) => {
