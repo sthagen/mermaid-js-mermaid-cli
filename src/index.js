@@ -2,14 +2,28 @@ import { Command, Option, InvalidArgumentError } from 'commander'
 import chalk from 'chalk'
 import fs from 'fs'
 import { resolve } from 'import-meta-resolve'
+import os from 'node:os'
 import path from 'path'
+import pLimit from 'p-limit'
 import puppeteer from 'puppeteer'
 import url from 'url'
+import { promisify } from 'node:util'
 import { version } from './version.js'
 import { Interceptor } from './puppeteerIntercept.js'
 
 // __dirname is not available in ESM modules by default
 const __dirname = url.fileURLToPath(new url.URL('.', import.meta.url))
+
+/**
+ * CSS paths to embed in the page.
+ */
+const cssImports = /** @type {const} */ ({
+  '@fortawesome/fontawesome-free/css/brands.css': { level: 2 },
+  '@fortawesome/fontawesome-free/css/regular.css': { level: 2 },
+  '@fortawesome/fontawesome-free/css/solid.css': { level: 2 },
+  '@fortawesome/fontawesome-free/css/fontawesome.css': { level: 2 },
+  'katex/dist/katex.css': { level: 2 }
+})
 
 /**
  * ESM bundles. Our interceptor doesn't support loading ESM modules that load
@@ -18,6 +32,18 @@ const __dirname = url.fileURLToPath(new url.URL('.', import.meta.url))
 const mermaidESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('mermaid', import.meta.url))), 'mermaid.esm.mjs')
 const elkESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('@mermaid-js/layout-elk', import.meta.url))), 'mermaid-layout-elk.esm.mjs')
 const zenumlESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('@mermaid-js/mermaid-zenuml', import.meta.url))), 'mermaid-zenuml.esm.mjs')
+
+/** @type {string | undefined} Path to `@mermaid-js/layout-tidy-tree`, if it is installed */
+let tidyTreeESMPath
+try {
+  tidyTreeESMPath = path.resolve(path.dirname(url.fileURLToPath(resolve('@mermaid-js/layout-tidy-tree', import.meta.url))), 'mermaid-layout-tidy-tree.esm.mjs')
+} catch (error) {
+  if (error instanceof Error && 'code' in error && error.code === 'ERR_MODULE_NOT_FOUND') {
+    // optional dependency, this is normal
+  } else {
+    throw error
+  }
+}
 
 /**
  * Prints an error to stderr, then closes with exit code 1
@@ -103,6 +129,22 @@ function parseCommanderInt (value, _unused) {
   return parsedValue
 }
 
+/**
+ * Commander parser that converts a string to a float.
+ *
+ * @param {string} value - The value from commander.
+ * @param {*} _unused - Unused.
+ * @returns {number} The value parsed as a number.
+ * @see https://github.com/tj/commander.js/wiki/Class:-Option#argparserfn
+ */
+function parseCommanderFloat (value, _unused) {
+  const parsedValue = parseFloat(value)
+  if (isNaN(parsedValue) || parsedValue <= 0) {
+    throw new InvalidArgumentError('Not a positive number.')
+  }
+  return parsedValue
+}
+
 async function cli () {
   const commander = new Command()
   commander
@@ -113,12 +155,15 @@ async function cli () {
     .option('-i, --input <input>', 'Input mermaid file. Files ending in .md will be treated as Markdown and all charts (e.g. ```mermaid (...)``` or :::mermaid (...):::) will be extracted and generated. Use `-` to read from stdin.')
     .option('-o, --output [output]', 'Output file. It should be either md, svg, png, pdf or use `-` to output to stdout. Optional. Default: input + ".svg"')
     .option('-a, --artefacts [artefacts]', 'Output artefacts path. Only used with Markdown input file. Optional. Default: output directory')
+    .addOption(new Option('-j, --jobs <jobs>', 'Number of parallel jobs to run when rendering multiple diagrams. Defaults to half the available CPUs.').argParser(parseCommanderInt).default(
+      Math.floor(os.availableParallelism() / 2) || 1
+    ))
     .addOption(new Option('-e, --outputFormat [format]', 'Output format for the generated image.').choices(['svg', 'png', 'pdf']).default(null, 'Loaded from the output file extension'))
     .addOption(new Option('-b, --backgroundColor [backgroundColor]', 'Background color for pngs/svgs (not pdfs). Example: transparent, red, \'#F0F0F0\'.').default('white'))
     .option('-c, --configFile [configFile]', 'JSON configuration file for mermaid.')
     .option('-C, --cssFile [cssFile]', 'CSS file for the page.')
     .option('-I, --svgId [svgId]', 'The id attribute for the SVG element to be rendered.')
-    .addOption(new Option('-s, --scale [scale]', 'Puppeteer scale factor').argParser(parseCommanderInt).default(1))
+    .addOption(new Option('-s, --scale [scale]', 'Puppeteer scale factor').argParser(parseCommanderFloat).default(1))
     .option('-f, --pdfFit', 'Scale PDF to fit chart')
     .option('-q, --quiet', 'Suppress log output')
     .option('-p --puppeteerConfigFile [puppeteerConfigFile]', 'JSON configuration file for puppeteer.')
@@ -128,7 +173,7 @@ async function cli () {
 
   const options = commander.opts()
 
-  let { theme, width, height, input, output, outputFormat, backgroundColor, configFile, cssFile, svgId, puppeteerConfigFile, scale, pdfFit, quiet, iconPacks, iconPacksNamesAndUrls, artefacts } = options
+  let { theme, width, height, input, output, outputFormat, backgroundColor, configFile, cssFile, svgId, puppeteerConfigFile, scale, pdfFit, quiet, iconPacks, iconPacksNamesAndUrls, artefacts, jobs } = options
 
   // check input file
   if (!input) {
@@ -217,6 +262,7 @@ async function cli () {
       puppeteerConfig,
       quiet,
       outputFormat,
+      limiter: pLimit(jobs),
       parseMMDOptions: {
         mermaidConfig, backgroundColor, myCSS, pdfFit, viewport: { width, height, deviceScaleFactor: scale }, svgId, iconPacks, iconPacksNamesAndUrls
       },
@@ -265,18 +311,36 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
     const mermaidUrl = await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(mermaidESMPath))
     const elkUrl = await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(elkESMPath))
     const zenumlUrl = await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(zenumlESMPath))
+    const tidyTreeESMUrl = tidyTreeESMPath ? await interceptor.fileUrlToInterceptUrl(url.pathToFileURL(tidyTreeESMPath)) : undefined
 
     page.on('request', interceptor.interceptRequestHandler)
     await page.setRequestInterception(true)
 
-    const metadata = await page.$eval('#container', async (container, { definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls, elkUrl, mermaidUrl, zenumlUrl }) => {
+    await Promise.all(Object.entries(cssImports).map(async ([cssImport, { level }]) => {
+      const interceptUrl = await interceptor.fileUrlToInterceptUrl(new URL(resolve(cssImport, import.meta.url)), {
+        allowParentDirectoryLevel: level
+      })
+      await page.addStyleTag({
+        url: interceptUrl
+      })
+    }))
+
+    const metadata = await page.$eval('#container', async (container, { definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls, elkUrl, mermaidUrl, zenumlUrl, tidyTreeESMUrl }) => {
       const { default: mermaid } = await import(mermaidUrl)
+      /** @type {typeof import('@mermaid-js/layout-elk')} */
       const { default: elkLayouts } = await import(elkUrl)
+      /** @type {typeof import('@mermaid-js/mermaid-zenuml')} */
       const { default: zenuml } = await import(zenumlUrl)
+      // @ts-ignore -- @mermaid-js/layout-tidy-tree is an optionalDependency and might not be installed
+      /** @type {typeof import('@mermaid-js/layout-tidy-tree') | {default: undefined}} */
+      const { default: tidyTree } = tidyTreeESMUrl ? await import(tidyTreeESMUrl) : { default: undefined }
       await Promise.all(Array.from(document.fonts, (font) => font.load()))
 
       await mermaid.registerExternalDiagrams([zenuml])
-      mermaid.registerLayoutLoaders(elkLayouts)
+      mermaid.registerLayoutLoaders([
+        ...elkLayouts,
+        ...(tidyTree ?? [])
+      ])
       // lazy load icon packs
 
       mermaid.registerIconPacks(
@@ -345,7 +409,7 @@ async function renderMermaid (browser, definition, outputFormat, { viewport, bac
       return {
         title, desc
       }
-    }, { definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls, elkUrl, mermaidUrl, zenumlUrl })
+    }, { definition, mermaidConfig, myCSS, backgroundColor, svgId, iconPacks, iconPacksNamesAndUrls, elkUrl, mermaidUrl, zenumlUrl, tidyTreeESMUrl })
 
     if (outputFormat === 'svg') {
       const svgXML = await page.$eval('svg', (svg) => {
@@ -425,6 +489,13 @@ function markdownImage ({ url, title, alt }) {
 }
 
 /**
+ * @typedef {<Arguments extends unknown[], ReturnType>(
+ *  function_: (...arguments_: Arguments) => Promise<ReturnType>,
+ *    ...arguments_: Arguments
+ * ) => Promise<ReturnType>} Limiter - Adapted from `p-limit` package.
+ */
+
+/**
  * Renders a mermaid diagram or mermaid markdown file.
  *
  * @param {`${string}.${"md" | "markdown"}` | string | undefined} input - If this ends with `.md`/`.markdown`,
@@ -438,9 +509,12 @@ function markdownImage ({ url, title, alt }) {
  * @param {"svg" | "png" | "pdf"} [opts.outputFormat] - Mermaid output format.
  * @param {string} [opts.artefacts] - Path to the artefacts directory.
  * Defaults to `output` extension. Overrides `output` extension if set.
+ * @param {import("puppeteer").Browser} [opts.browser] - If set, reuses the given puppeteer browser instance instead of creating a new one.
+ * This may leak cookies/cache between runs.
+ * @param {Limiter} [opts.limiter] - If set, limiter function to avoid rendering too many diagrams in parallel.
  * @param {ParseMDDOptions} [opts.parseMMDOptions] - Options to pass to {@link parseMMDOptions}.
  */
-async function run (input, output, { puppeteerConfig = {}, quiet = false, outputFormat, parseMMDOptions, artefacts } = {}) {
+async function run (input, output, { browser: userPassedBrowser, puppeteerConfig = {}, quiet = false, outputFormat, parseMMDOptions, limiter = (x, ...args) => x(...args), artefacts } = {}) {
   /**
    * Logs the given message to stdout, unless `quiet` is set to `true`.
    *
@@ -459,7 +533,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
    * @type {puppeteer.Browser | undefined}
    * Lazy-loaded browser instance, only created when needed.
    */
-  let browser
+  let browser = userPassedBrowser
   try {
     if (!outputFormat) {
       const outputFormatFromFilename =
@@ -508,7 +582,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
 
         const outputFileRelative = `./${path.relative(path.dirname(path.resolve(output)), path.resolve(outputFile))}`
 
-        const imagePromise = (async () => {
+        const imagePromise = limiter(async (browser, outputFormat) => {
           const { title, desc, data } = await renderMermaid(browser, mermaidDefinition, outputFormat, parseMMDOptions)
           await fs.promises.writeFile(outputFile, data)
           info(` ✅ ${outputFileRelative}`)
@@ -518,7 +592,7 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
             title,
             alt: desc
           }
-        })()
+        }, browser, outputFormat)
         imagePromises.push(imagePromise)
       }
 
@@ -546,14 +620,19 @@ async function run (input, output, { puppeteerConfig = {}, quiet = false, output
       }
     } else {
       info('Generating single mermaid chart')
-      browser = await puppeteer.launch(puppeteerConfig)
+      browser ??= await puppeteer.launch(puppeteerConfig)
       const { data } = await renderMermaid(browser, definition, outputFormat, parseMMDOptions)
-      await output !== '/dev/stdout'
-        ? fs.promises.writeFile(output, data)
-        : process.stdout.write(data)
+      if (output === '/dev/stdout') {
+        await promisify(process.stdout.write).call(process.stdout, data)
+      } else {
+        await fs.promises.writeFile(output, data)
+      }
     }
   } finally {
-    await browser?.close?.()
+    // Don't close the browser if it was passed in by the user
+    if (browser !== userPassedBrowser) {
+      await browser?.close?.()
+    }
   }
 }
 

@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write # needed to push the commit with the new version to the repository
   id-token: write
   packages: write
 
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '24'
-          cache: npm
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org/
       - name: Build the package
         # throws an error if package-lock.json is out-of-date
@@ -46,7 +46,7 @@ jobs:
         run: echo "RELEASE_VERSION=${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_ENV
 
       - name: Prepare release
-        run: npm version --no-git-tag-version --allow-same-version ${{env.RELEASE_VERSION}}
+        run: npm version --no-git-tag-version --allow-same-version "$RELEASE_VERSION"
 
       - name: Convert repository name to lower case
         run: echo "GITHUB_REPOSITORY_LOWER_CASE=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
@@ -62,20 +62,20 @@ jobs:
           path: /home/runner/.npm/_logs
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to DockerHub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -95,14 +95,14 @@ jobs:
 
       - name: Post deployment tests
         run: |
-          for i in $(ls test-positive/*.mmd); do docker run -v $(pwd):/data ${{env.DOCKER_IO_REPOSITORY}}:${{env.RELEASE_VERSION}} -i /data/$i; done
-          for i in $(ls test-positive/*.mmd); do cat $i | docker run -i -v $(pwd):/data ${{env.DOCKER_IO_REPOSITORY}}:${{env.RELEASE_VERSION}} -o /data/$i-stdin.svg; done
+          for i in test-positive/*.mmd; do docker run -v "$(pwd):/data" "$DOCKER_IO_REPOSITORY:$RELEASE_VERSION" -i "/data/$i"; done
+          for i in test-positive/*.mmd; do cat "$i" | docker run -i -v "$(pwd):/data" "$DOCKER_IO_REPOSITORY:$RELEASE_VERSION" -o "/data/$i-stdin.svg"; done
 
       - name: Commit new version to the repository
         run: |
-          git add package.json
+          git add package.json package-lock.json
           git checkout master
-          git commit -m "Bump version ${{env.RELEASE_VERSION}}"
+          git commit -m "Bump version $RELEASE_VERSION"
           git push --no-verify
 
       # For manual inspection of the generated artifacts
