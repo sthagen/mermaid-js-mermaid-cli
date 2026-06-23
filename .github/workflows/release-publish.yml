@@ -19,7 +19,7 @@ jobs:
       DOCKER_IO_REPOSITORY: minlag/mermaid-cli
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35 # v2.0.2
@@ -46,7 +46,26 @@ jobs:
         run: echo "RELEASE_VERSION=${{ steps.gitversion.outputs.semVer }}" >> $GITHUB_ENV
 
       - name: Prepare release
-        run: npm version --no-git-tag-version --allow-same-version "$RELEASE_VERSION"
+        env:
+          release_tag: ${{ github.event.release.tag_name }}
+        run: |
+          old_release_tag_ref="$(git rev-parse "refs/tags/$release_tag")"
+
+          if [ "$release_tag" != "$RELEASE_VERSION" ]; then
+            echo "Release tag '$release_tag' does not match version '$RELEASE_VERSION'"
+            exit 1
+          fi
+
+          npm version \
+            --allow-same-version \
+            --tag-version-prefix "" \
+            --message "Bump version %s" \
+            "$RELEASE_VERSION"
+
+          echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git push --no-verify \
+            --force-with-lease="refs/tags/$release_tag:$old_release_tag_ref" \
+            origin "refs/tags/$release_tag"
 
       - name: Convert repository name to lower case
         run: echo "GITHUB_REPOSITORY_LOWER_CASE=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
@@ -98,12 +117,14 @@ jobs:
           for i in test-positive/*.mmd; do docker run -v "$(pwd):/data" "$DOCKER_IO_REPOSITORY:$RELEASE_VERSION" -i "/data/$i"; done
           for i in test-positive/*.mmd; do cat "$i" | docker run -i -v "$(pwd):/data" "$DOCKER_IO_REPOSITORY:$RELEASE_VERSION" -o "/data/$i-stdin.svg"; done
 
-      - name: Commit new version to the repository
+      - name: Update default branch to release commit
+        continue-on-error: true
         run: |
-          git add package.json package-lock.json
-          git checkout master
-          git commit -m "Bump version $RELEASE_VERSION"
+          git switch "$DEFAULT_BRANCH"
+          git merge --ff-only "$RELEASE_COMMIT"
           git push --no-verify
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
       # For manual inspection of the generated artifacts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
