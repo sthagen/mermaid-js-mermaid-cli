@@ -5,6 +5,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import url from "node:url";
+import { DEFAULT_INTERCEPT_RESOLUTION_PRIORITY } from "puppeteer";
 
 /**
  * Guesses the MIME-type of a file based on its extension.
@@ -95,38 +96,41 @@ export class Interceptor {
   }
 
   /**
-   * @param {puppeteer.HTTPRequest} request - The intercepted request
+   * @param {import('puppeteer').HTTPRequest} request - The intercepted request
    */
   async #interceptRequestHandler(request) {
     try {
       if (request.url().startsWith(this.#INTERCEPT_ORIGIN)) {
         const fileUrl = await this.interceptUrlToFileUrl(request.url());
-        return request.respond({
-          status: 200,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
+        return request.respond(
+          {
+            status: 200,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+            contentType: getContentTypeFromFileExtension(
+              url.fileURLToPath(fileUrl),
+            ),
+            body: await readFile(fileUrl),
           },
-          contentType: getContentTypeFromFileExtension(
-            url.fileURLToPath(fileUrl),
-          ),
-          body: await readFile(fileUrl),
-        });
+          DEFAULT_INTERCEPT_RESOLUTION_PRIORITY,
+        );
       }
     } catch (error) {
       console.error(
         `Error handling intercept request for ${request.url()}:`,
         error,
       );
-      request.abort();
+      return request.abort(undefined, DEFAULT_INTERCEPT_RESOLUTION_PRIORITY);
     }
-    request.continue();
+    request.continue(undefined, DEFAULT_INTERCEPT_RESOLUTION_PRIORITY);
   }
 
   /**
    * Intercepts requests to `https://mermaid-cli-intercept.invalid`
    * and serves the corresponding file content.
    *
-   * @return {puppeteer.Handler<puppeteer.HTTPRequest>}
+   * @return {import('puppeteer').Handler<import('puppeteer').HTTPRequest>}
    */
   get interceptRequestHandler() {
     return this.#interceptRequestHandler.bind(this);

@@ -750,15 +750,16 @@ async function run(
     "gm",
   );
   /**
-   * @type {puppeteer.Browser | undefined}
+   * @type {import('puppeteer').Browser | undefined}
    * Lazy-loaded browser instance, only created when needed.
    */
   let browser = userPassedBrowser;
   try {
     if (!outputFormat) {
-      const outputFormatFromFilename = /**
-       * @type {"md" | "markdown" | "svg" | "png" | "pdf"}
-       */ (path.extname(output).replace(".", ""));
+      const outputFormatFromFilename =
+        /**
+         * @type {"md" | "markdown" | "svg" | "png" | "pdf"}
+         */ (path.extname(output).replace(".", ""));
       if (
         outputFormatFromFilename === "md" ||
         outputFormatFromFilename === "markdown"
@@ -844,11 +845,12 @@ async function run(
           mermaidChartsInMarkdownRegexGlobal,
           (_mermaidMd) => {
             // pop first image from front of array
-            const { url, title, alt } = /**
-             * @type {MarkdownImageProps} We use the same regex,
-             * so we will never try to get too many objects from the array.
-             * (aka `images.shift()` will never return `undefined`)
-             */ (images.shift());
+            const { url, title, alt } =
+              /**
+               * @type {MarkdownImageProps} We use the same regex,
+               * so we will never try to get too many objects from the array.
+               * (aka `images.shift()` will never return `undefined`)
+               */ (images.shift());
             return markdownImage({ url, title, alt: alt || "diagram" });
           },
         );
