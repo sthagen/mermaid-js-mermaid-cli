@@ -33,12 +33,6 @@ const mermaidESMPath = path.resolve(
   path.dirname(url.fileURLToPath(resolve("mermaid", import.meta.url))),
   "mermaid.esm.mjs",
 );
-const elkESMPath = path.resolve(
-  path.dirname(
-    url.fileURLToPath(resolve("@mermaid-js/layout-elk", import.meta.url)),
-  ),
-  "mermaid-layout-elk.esm.mjs",
-);
 const zenumlESMPath = path.resolve(
   path.dirname(
     url.fileURLToPath(resolve("@mermaid-js/mermaid-zenuml", import.meta.url)),
@@ -169,14 +163,35 @@ function parseCommanderFloat(value, _unused) {
   return parsedValue;
 }
 
+/**
+ * List of themes.
+ *
+ * @see https://mermaid.js.org/config/schema-docs/config.html#theme
+ * @satisfies{Array<import('mermaid').MermaidConfig['theme']>}
+ */
+const themes = [
+  "base",
+  "dark",
+  "default",
+  "forest",
+  "neutral",
+  "neo",
+  "neo-dark",
+  "redux",
+  "redux-dark",
+  "redux-color",
+  "redux-dark-color",
+  "null",
+];
+
 async function cli() {
   const commander = new Command();
   commander
     .version(version)
     .addOption(
       new Option("-t, --theme [theme]", "Theme of the chart")
-        .choices(["default", "forest", "dark", "neutral"])
-        .default("default"),
+        .choices(themes)
+        .default(undefined, "Mermaid default (depends on diagram type)"),
     )
     .addOption(
       new Option("-w, --width [width]", "Width of the page")
@@ -226,7 +241,10 @@ async function cli() {
       "-c, --configFile [configFile]",
       "JSON configuration file for mermaid.",
     )
-    .option("-C, --cssFile [cssFile]", "CSS file for the page.")
+    .option(
+      "-C, --cssFile [cssFile]",
+      "CSS file for the page, used as Mermaid's `themeCSS`",
+    )
     .option(
       "-I, --svgId [svgId]",
       "The id attribute for the SVG element to be rendered.",
@@ -363,12 +381,18 @@ async function cli() {
   }
 
   // check cssFile
-  let myCSS;
   if (cssFile) {
     if (!fs.existsSync(cssFile)) {
       error(`CSS file "${cssFile}" doesn't exist`);
     }
-    myCSS = fs.readFileSync(cssFile, "utf-8");
+    if (Object.hasOwn(mermaidConfig, "themeCSS")) {
+      warn(
+        `Overriding existing themeCSS in mermaidConfig with CSS from "${cssFile}"`,
+      );
+    }
+    mermaidConfig = Object.assign(mermaidConfig, {
+      themeCSS: fs.readFileSync(cssFile, "utf-8"),
+    });
   }
 
   await run(input, output, {
@@ -379,7 +403,6 @@ async function cli() {
     parseMMDOptions: {
       mermaidConfig,
       backgroundColor,
-      myCSS,
       pdfFit,
       viewport: { width, height, deviceScaleFactor: scale },
       svgId,
@@ -395,7 +418,6 @@ async function cli() {
  * @property {import("puppeteer").Viewport} [viewport] - Puppeteer viewport (e.g. `width`, `height`, `deviceScaleFactor`)
  * @property {string | "transparent"} [backgroundColor] - Background color.
  * @property {Parameters<import("mermaid")["default"]["initialize"]>[0]} [mermaidConfig] - Mermaid config.
- * @property {CSSStyleDeclaration["cssText"]} [myCSS] - Optional CSS text.
  * @property {boolean} [pdfFit] - If set, scale PDF to fit chart.
  * @property {string} [svgId] - The id attribute for the SVG element to be rendered.
  * @property {string[]} [iconPacks] - Icon packages to use.
@@ -419,7 +441,6 @@ async function renderMermaid(
     viewport,
     backgroundColor = "white",
     mermaidConfig = {},
-    myCSS,
     pdfFit,
     svgId,
     iconPacks = [],
@@ -447,9 +468,6 @@ async function renderMermaid(
     const interceptor = new Interceptor();
     const mermaidUrl = await interceptor.fileUrlToInterceptUrl(
       url.pathToFileURL(mermaidESMPath),
-    );
-    const elkUrl = await interceptor.fileUrlToInterceptUrl(
-      url.pathToFileURL(elkESMPath),
     );
     const zenumlUrl = await interceptor.fileUrlToInterceptUrl(
       url.pathToFileURL(zenumlESMPath),
@@ -484,20 +502,16 @@ async function renderMermaid(
         {
           definition,
           mermaidConfig,
-          myCSS,
           backgroundColor,
           svgId,
           iconPacks,
           iconPacksNamesAndUrls,
-          elkUrl,
           mermaidUrl,
           zenumlUrl,
           tidyTreeESMUrl,
         },
       ) => {
         const { default: mermaid } = await import(mermaidUrl);
-        /** @type {typeof import('@mermaid-js/layout-elk')} */
-        const { default: elkLayouts } = await import(elkUrl);
         /** @type {typeof import('@mermaid-js/mermaid-zenuml')} */
         const { default: zenuml } = await import(zenumlUrl);
         // @ts-ignore -- @mermaid-js/layout-tidy-tree is an optionalDependency and might not be installed
@@ -508,7 +522,7 @@ async function renderMermaid(
         await Promise.all(Array.from(document.fonts, (font) => font.load()));
 
         await mermaid.registerExternalDiagrams([zenuml]);
-        mermaid.registerLayoutLoaders([...elkLayouts, ...(tidyTree ?? [])]);
+        mermaid.registerLayoutLoaders(tidyTree ?? []);
         // lazy load icon packs
 
         mermaid.registerIconPacks(
@@ -552,16 +566,6 @@ async function renderMermaid(
         } else {
           warn("svg not found. Not applying background color.");
         }
-        if (myCSS) {
-          // add CSS as a <svg>...<style>... element
-          // see https://developer.mozilla.org/en-US/docs/Web/API/SVGStyleElement
-          const style = document.createElementNS(
-            "http://www.w3.org/2000/svg",
-            "style",
-          );
-          style.appendChild(document.createTextNode(myCSS));
-          svg.appendChild(style);
-        }
 
         // Finds SVG metadata for accessibility purposes
         /** SVG title */
@@ -586,12 +590,10 @@ async function renderMermaid(
       {
         definition,
         mermaidConfig,
-        myCSS,
         backgroundColor,
         svgId,
         iconPacks,
         iconPacksNamesAndUrls,
-        elkUrl,
         mermaidUrl,
         zenumlUrl,
         tidyTreeESMUrl,
