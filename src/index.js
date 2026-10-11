@@ -15,17 +15,6 @@ import { Interceptor } from "./puppeteerIntercept.js";
 const __dirname = url.fileURLToPath(new url.URL(".", import.meta.url));
 
 /**
- * CSS paths to embed in the page.
- */
-const cssImports = /** @type {const} */ ({
-  "@fortawesome/fontawesome-free/css/brands.css": { level: 2 },
-  "@fortawesome/fontawesome-free/css/regular.css": { level: 2 },
-  "@fortawesome/fontawesome-free/css/solid.css": { level: 2 },
-  "@fortawesome/fontawesome-free/css/fontawesome.css": { level: 2 },
-  "katex/dist/katex.css": { level: 2 },
-});
-
-/**
  * ESM bundles. Our interceptor doesn't support loading ESM modules that load
  * other modules using relative paths, so these have to no `dependencies`.
  */
@@ -38,6 +27,9 @@ const zenumlESMPath = path.resolve(
     url.fileURLToPath(resolve("@mermaid-js/mermaid-zenuml", import.meta.url)),
   ),
   "mermaid-zenuml.esm.mjs",
+);
+const browserUtilsPath = url.fileURLToPath(
+  resolve("./browser/fontEmbedder.js", import.meta.url),
 );
 
 /** @type {string | undefined} Path to `@mermaid-js/layout-tidy-tree`, if it is installed */
@@ -185,34 +177,49 @@ const themes = [
 ];
 
 async function cli() {
-  const commander = new Command();
-  commander
+  const commander = new Command()
     .version(version)
+    .description("Render a mermaid diagram definition into various formats")
     .addOption(
-      new Option("-t, --theme [theme]", "Theme of the chart")
+      new Option("-t, --theme <theme>", "Theme of the chart")
         .choices(themes)
         .default(undefined, "Mermaid default (depends on diagram type)"),
     )
     .addOption(
-      new Option("-w, --width [width]", "Width of the page")
-        .argParser(parseCommanderInt)
-        .default(800),
-    )
-    .addOption(
-      new Option("-H, --height [height]", "Height of the page")
-        .argParser(parseCommanderInt)
-        .default(600),
+      new Option(
+        "--size <size>",
+        [
+          "Size of the diagram.",
+          "This will attempt to create a PNG with a maximum height or width equal to the given size.",
+          "For `.svg`s, this will set the `max-width` attribute.",
+          "For `.pdf`s, this is in CSS px, which is 1/96 of an inch.",
+        ].join("\n"),
+      ).argParser(parseCommanderInt),
     )
     .option(
       "-i, --input <input>",
       "Input mermaid file. Files ending in .md will be treated as Markdown and all charts (e.g. ```mermaid (...)``` or :::mermaid (...):::) will be extracted and generated. Use `-` to read from stdin.",
     )
-    .option(
-      "-o, --output [output]",
-      'Output file. It should be either md, svg, png, pdf or use `-` to output to stdout. Optional. Default: input + ".svg"',
+    .addOption(
+      new Option(
+        "-o, --output <output>",
+        'Output file. It should be either md, svg, png, pdf or use `-` to output to stdout. Optional. Default: input + ".svg"',
+      ).argParser((value) => {
+        if (value === "-") {
+          return /** @type {const} */ ("/dev/stdout");
+        }
+        if (/\.(?:svg|png|pdf|md|markdown)$/.test(value)) {
+          return /** @type {`${string}.${"svg" | "png" | "pdf" | "md" | "markdown"}`} */ (
+            value
+          );
+        }
+        throw new InvalidArgumentError(
+          "Output file must be either md, svg, png, or pdf.",
+        );
+      }),
     )
     .option(
-      "-a, --artefacts [artefacts]",
+      "-a, --artefacts <artefacts>",
       "Output artefacts path. Only used with Markdown input file. Optional. Default: output directory",
     )
     .addOption(
@@ -225,50 +232,145 @@ async function cli() {
     )
     .addOption(
       new Option(
-        "-e, --outputFormat [format]",
+        "-e, --outputFormat <format>",
         "Output format for the generated image.",
       )
         .choices(["svg", "png", "pdf"])
-        .default(null, "Loaded from the output file extension"),
+        .default(undefined, "Loaded from the output file extension"),
     )
     .addOption(
       new Option(
-        "-b, --backgroundColor [backgroundColor]",
+        "-b, --backgroundColor <backgroundColor>",
         "Background color for pngs/svgs (not pdfs). Example: transparent, red, '#F0F0F0'.",
       ).default("white"),
     )
     .option(
-      "-c, --configFile [configFile]",
+      "-c, --configFile <configFile>",
       "JSON configuration file for mermaid.",
     )
     .option(
-      "-C, --cssFile [cssFile]",
+      "-C, --cssFile <cssFile>",
       "CSS file for the page, used as Mermaid's `themeCSS`",
     )
     .option(
-      "-I, --svgId [svgId]",
+      "-I, --svgId <svgId>",
       "The id attribute for the SVG element to be rendered.",
     )
     .addOption(
-      new Option("-s, --scale [scale]", "Puppeteer scale factor")
+      new Option("-s, --scale <scale>", "Puppeteer scale factor")
         .argParser(parseCommanderFloat)
         .default(1),
     )
-    .option("-f, --pdfFit", "Scale PDF to fit chart")
+    .option(
+      "--no-font-embed",
+      "Disable embedding fonts into the SVG. This cuts down on SVG size, but would result in missing fonts if they are not available on the system.",
+    )
+    .addOption(
+      new Option(
+        "--pdf-paper-format <format>",
+        "If set, output a PDF with the given paper size, instead of fitting the diagram.",
+      ).choices([
+        "Letter",
+        "Legal",
+        "Tabloid",
+        "Ledger",
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+      ]),
+    )
     .option("-q, --quiet", "Suppress log output")
     .option(
-      "-p --puppeteerConfigFile [puppeteerConfigFile]",
+      "-p --puppeteerConfigFile <puppeteerConfigFile>",
       "JSON configuration file for puppeteer.",
     )
-    .option(
-      "--iconPacks <icons...>",
-      "Icon packs to use, e.g. @iconify-json/logos. These should be Iconify NPM packages that expose a icons.json file, see https://iconify.design/docs/icons/json.html. These will be downloaded from https://unkpg.com when needed.",
-      [],
+    .addOption(
+      new Option(
+        "--iconPacks <icon-packages...>",
+        [
+          "Installed icon packs to use, e.g. @iconify-json/logos.",
+          "These should be Iconify NPM packages that expose a icons.json file, see https://iconify.design/docs/icons/json.html.",
+          "They can be installed via `npm install <icon-package-name>`.",
+        ].join("\n"),
+      ).argParser(
+        /**
+         * @param {string} val - The value passed to the argument parser.
+         * @param {Record<string, URL>} previous - The previous parsed value.
+         */
+        (val, previous = {}) => {
+          const iconPackModuleSpecifier = `${val}/icons.json`;
+          let iconPackUrl;
+          try {
+            iconPackUrl = new URL(import.meta.resolve(iconPackModuleSpecifier));
+          } catch {
+            throw new InvalidArgumentError(
+              `Could not find icon pack ${JSON.stringify(iconPackModuleSpecifier)}. Have you installed them with 'npm install ${val}'?`,
+            );
+          }
+          let iconPackContents;
+          try {
+            iconPackContents = fs.readFileSync(iconPackUrl, "utf-8");
+          } catch {
+            throw new InvalidArgumentError(
+              `Failed to read icon pack JSON from ${JSON.stringify(iconPackUrl)}.`,
+            );
+          }
+          /** @type {unknown} */
+          let iconPackJSON;
+          try {
+            iconPackJSON = JSON.parse(iconPackContents);
+          } catch {
+            throw new InvalidArgumentError(
+              `Failed to parse icon pack JSON from ${JSON.stringify(iconPackModuleSpecifier)}.`,
+            );
+          }
+          if (
+            !iconPackJSON ||
+            typeof iconPackJSON !== "object" ||
+            !("prefix" in iconPackJSON) ||
+            typeof iconPackJSON.prefix !== "string"
+          ) {
+            throw new InvalidArgumentError(
+              `Invalid icon pack JSON from ${JSON.stringify(iconPackUrl)}. Missing or invalid "prefix" property.`,
+            );
+          }
+          // Don't use the previous object directly to avoid prototype pollution
+          return { ...previous, [iconPackJSON.prefix]: iconPackUrl };
+        },
+      ),
     )
-    .option(
-      "--iconPacksNamesAndUrls <prefix#iconsurl...>",
-      'Icon packs to use, e.g. azure#https://raw.githubusercontent.com/NakayamaKento/AzureIcons/refs/heads/main/icons.json where the name (prefix) of the icon pack is defined before the "#" and the url of the json definition after the "#". These should be Iconify json file formatted as IconifyJson, see https://iconify.design/docs/icons/json.html. These will be downloaded when needed.',
-      [],
+    .addOption(
+      new Option(
+        "--iconPacksNamesAndUrls <prefix#iconsurl...>",
+        [
+          'Icon packs to use, e.g. azure#file:///tmp/icons.json where the name (prefix) of the icon pack is defined before the "#" and the url of the json definition after the "#".',
+          "These should be Iconify json file formatted as IconifyJson, see https://iconify.design/docs/icons/json.html.",
+          "These will be downloaded when needed.",
+          "Use `file://` URIs to reference local files.",
+        ].join("\n"),
+      ).argParser(
+        /**
+         * @param {string} val - The value passed to the argument parser, in the format "prefix#iconsurl".
+         * @param {Record<string, URL>} previous - The previous parsed value.
+         */
+        (val, previous = {}) => {
+          const [iconName, ...iconPackHrefParts] = val.split("#");
+          let iconPackUrl;
+          try {
+            iconPackUrl = new URL(iconPackHrefParts.join("#"));
+          } catch {
+            throw new InvalidArgumentError(
+              "Failed to parse a valid URL. The format should be iconPackName#https://my-example-url.example",
+            );
+          }
+          // Don't use the previous object directly to avoid prototype pollution
+          return { ...previous, [iconName]: iconPackUrl };
+        },
+      ),
     )
     .parse(process.argv);
 
@@ -276,8 +378,7 @@ async function cli() {
 
   let {
     theme,
-    width,
-    height,
+    size,
     input,
     output,
     outputFormat,
@@ -287,7 +388,8 @@ async function cli() {
     svgId,
     puppeteerConfigFile,
     scale,
-    pdfFit,
+    fontEmbed,
+    pdfPaperFormat,
     quiet,
     iconPacks,
     iconPacksNamesAndUrls,
@@ -319,9 +421,7 @@ async function cli() {
     } else {
       output = input ? `${input}.svg` : "out.svg";
     }
-  } else if (output === "-") {
-    // `--output -` means write to stdout.
-    output = "/dev/stdout";
+  } else if (output === "/dev/stdout") {
     quiet = true;
 
     if (!outputFormat) {
@@ -332,10 +432,6 @@ async function cli() {
           "please use `-e <format>.` ",
       );
     }
-  } else if (!/\.(?:svg|png|pdf|md|markdown)$/.test(output)) {
-    error(
-      'Output file must end with ".md"/".markdown", ".svg", ".png" or ".pdf"',
-    );
   }
 
   if (artefacts) {
@@ -403,25 +499,49 @@ async function cli() {
     parseMMDOptions: {
       mermaidConfig,
       backgroundColor,
-      pdfFit,
-      viewport: { width, height, deviceScaleFactor: scale },
+      fontEmbed,
+      pdfPaperFormat,
+      size,
+      viewport: {
+        // Puppeteer has an 8px margin, so need to add those to get the correct size.
+        width: size ? size + 16 : 0,
+        height: size ? size + 16 : 0,
+        deviceScaleFactor: scale,
+      },
       svgId,
-      iconPacks,
-      iconPacksNamesAndUrls,
+      iconPacks: {
+        ...iconPacks,
+        ...iconPacksNamesAndUrls,
+      },
     },
     artefacts,
   });
 }
 
 /**
+ * @typedef {Object} CustomFontCSS Config for adding custom font CSS.
+ *
+ * If used, these will be embedded into the `.svg` if `fontEmbed` is enabled.
+ *
+ * If using a `.css` file `npm`, use {@link import.meta.resolve} to find the
+ * `file://` URI, then set `allowParentDirectoryLevel` to module root directory.
+ *
+ * @property {URL} cssUrl - URL to the custom font CSS file.
+ * @property {number} [allowParentDirectoryLevel=0] - For `file://` URIs, the number of `../` relative imports to allow.
+ */
+
+/**
  * @typedef {Object} ParseMDDOptions Options to pass to {@link parseMMD}
+ * @property {number} [size] - The desired size (max width or height, depending on aspect ratio) of the created PNG.
  * @property {import("puppeteer").Viewport} [viewport] - Puppeteer viewport (e.g. `width`, `height`, `deviceScaleFactor`)
  * @property {string | "transparent"} [backgroundColor] - Background color.
  * @property {Parameters<import("mermaid")["default"]["initialize"]>[0]} [mermaidConfig] - Mermaid config.
- * @property {boolean} [pdfFit] - If set, scale PDF to fit chart.
+ * @property {CustomFontCSS[]} [customFontCSS] - Custom CSS for embedding fonts. See {@link CustomFontCSS} for details.
+ * @property {boolean} [fontEmbed] - Whether to embed used fonts into the SVG.
+ * @property {"Letter" | "Legal" | "Tabloid" | "Ledger" | "A0" | "A1" | "A2" | "A3" | "A4" | "A5" | "A6"} [pdfPaperFormat] - If set, make a PDF of the given size, instead of scaling it to the diagram.
  * @property {string} [svgId] - The id attribute for the SVG element to be rendered.
- * @property {string[]} [iconPacks] - Icon packages to use.
- * @property {string[]} [iconPacksNamesAndUrls] - IconPack Json file name and url to use.
+ * @property {Record<string, URL>} [iconPacks] - Icon packages to use.
+ */
 
 /**
  * Render a mermaid diagram.
@@ -438,17 +558,24 @@ async function renderMermaid(
   definition,
   outputFormat,
   {
+    size,
     viewport,
     backgroundColor = "white",
     mermaidConfig = {},
-    pdfFit,
+    customFontCSS = [],
+    fontEmbed = true,
+    pdfPaperFormat,
     svgId,
-    iconPacks = [],
-    iconPacksNamesAndUrls = [],
+    iconPacks = {},
   } = {},
 ) {
   const page = await browser.newPage();
   page.on("console", (msg) => {
+    if (msg.location().url?.includes("LICENSE")) {
+      // These are normal HTTP 404 errors when we are searching for licenses
+      // for fonts/CSS embedding
+      return;
+    }
     console.warn(msg.text());
   });
   try {
@@ -477,22 +604,87 @@ async function renderMermaid(
           url.pathToFileURL(tidyTreeESMPath),
         )
       : undefined;
+    const browserUtilsUrl = await interceptor.fileUrlToInterceptUrl(
+      url.pathToFileURL(browserUtilsPath),
+    );
 
     page.on("request", interceptor.interceptRequestHandler);
     await page.setRequestInterception(true);
 
+    const cssImports = [
+      ...Object.entries({
+        "@fortawesome/fontawesome-free/css/brands.css": {
+          allowParentDirectoryLevel: 1,
+        },
+        "@fortawesome/fontawesome-free/css/regular.css": {
+          allowParentDirectoryLevel: 1,
+        },
+        "@fortawesome/fontawesome-free/css/solid.css": {
+          allowParentDirectoryLevel: 1,
+        },
+        "@fortawesome/fontawesome-free/css/fontawesome.css": {
+          allowParentDirectoryLevel: 1,
+        },
+        "@fontsource-variable/recursive/index.css": {
+          allowParentDirectoryLevel: 0,
+        },
+        "@fontsource/open-sans/400.css": {
+          allowParentDirectoryLevel: 0,
+        },
+        "@fontsource/open-sans/400-italic.css": {
+          allowParentDirectoryLevel: 0,
+        },
+        "katex/dist/katex.css": { allowParentDirectoryLevel: 1 },
+      }).map(([cssImport, { allowParentDirectoryLevel }]) => ({
+        cssUrl: new URL(resolve(cssImport, import.meta.url)),
+        allowParentDirectoryLevel,
+      })),
+      ...customFontCSS,
+    ];
+
     await Promise.all(
-      Object.entries(cssImports).map(async ([cssImport, { level }]) => {
-        const interceptUrl = await interceptor.fileUrlToInterceptUrl(
-          new URL(resolve(cssImport, import.meta.url)),
-          {
-            allowParentDirectoryLevel: level,
+      cssImports.map(async ({ cssUrl, allowParentDirectoryLevel }) => {
+        let href = cssUrl.href;
+        if (cssUrl.protocol === "file:") {
+          href = await interceptor.fileUrlToInterceptUrl(cssUrl, {
+            allowParentDirectoryLevel,
+          });
+        }
+        await page.evaluate(
+          ({ href }) => {
+            const link = document.createElement("link");
+            link.setAttribute("crossorigin", "anonymous");
+            link.setAttribute("rel", "stylesheet");
+            link.setAttribute("href", href);
+            link.setAttribute("class", "mermaid-cli-css");
+            const loaded = /** @type {Promise<void>} */ (
+              new Promise((resolve, reject) => {
+                link.onload = () => resolve();
+                link.onerror = () =>
+                  reject(new Error(`Failed to load stylesheet: ${href}`));
+              })
+            );
+            document.head.appendChild(link);
+            return loaded;
           },
+          { href },
         );
-        await page.addStyleTag({
-          url: interceptUrl,
-        });
       }),
+    );
+
+    const resolvedIconPacks = Object.fromEntries(
+      await Promise.all(
+        Object.entries(iconPacks).map(async ([name, url]) => {
+          if (url.protocol === "file:") {
+            url = new URL(
+              await interceptor.fileUrlToInterceptUrl(url, {
+                allowParentDirectoryLevel: 0,
+              }),
+            );
+          }
+          return /** @type {const} */ ([name, url.href]);
+        }),
+      ),
     );
 
     const metadata = await page.$eval(
@@ -502,15 +694,16 @@ async function renderMermaid(
         {
           definition,
           mermaidConfig,
+          size,
           backgroundColor,
           svgId,
-          iconPacks,
-          iconPacksNamesAndUrls,
+          resolvedIconPacks,
           mermaidUrl,
           zenumlUrl,
           tidyTreeESMUrl,
         },
       ) => {
+        /** @type {typeof import('mermaid')} */
         const { default: mermaid } = await import(mermaidUrl);
         /** @type {typeof import('@mermaid-js/mermaid-zenuml')} */
         const { default: zenuml } = await import(zenumlUrl);
@@ -524,29 +717,15 @@ async function renderMermaid(
         await mermaid.registerExternalDiagrams([zenuml]);
         mermaid.registerLayoutLoaders(tidyTree ?? []);
         // lazy load icon packs
-
         mermaid.registerIconPacks(
-          iconPacks.map((icon) => ({
-            name: icon.split("/")[1],
-            loader: () =>
-              fetch(`https://unpkg.com/${icon}/icons.json`)
-                .then((res) => res.json())
-                .catch(() => error(`Failed to fetch icon: ${icon}`)),
-          })),
-        );
-
-        mermaid.registerIconPacks(
-          iconPacksNamesAndUrls.map((iconPackInfo) => {
-            const packName = iconPackInfo.split("#")[0];
-            const packUrl = iconPackInfo.split("#")[1];
-
+          Object.entries(resolvedIconPacks).map(([packName, packUrl]) => {
             return {
               name: packName,
               loader: () =>
                 fetch(packUrl)
                   .then((res) => res.json())
                   .catch(() => {
-                    error(`Failed to fetch icon: ${iconPackInfo}`);
+                    error(`Failed to fetch icon: ${packName}`);
                   }),
             };
           }),
@@ -565,6 +744,14 @@ async function renderMermaid(
           svg.style.backgroundColor = backgroundColor;
         } else {
           warn("svg not found. Not applying background color.");
+        }
+        if (size) {
+          // If the SVG has a maxWidth, set it to 4K resolution
+          svg.style.maxWidth = `${size}px`;
+          svg.style.maxHeight = `${size}px`;
+          // in Mermaid v10.9.1, user journey diagrams have a fixed height (BUG??)
+          // see https://github.com/mermaid-js/mermaid/commit/f86bdd648a354062656bc0c6610424ea20dcd052
+          svg.removeAttribute("height");
         }
 
         // Finds SVG metadata for accessibility purposes
@@ -590,10 +777,10 @@ async function renderMermaid(
       {
         definition,
         mermaidConfig,
+        size,
         backgroundColor,
         svgId,
-        iconPacks,
-        iconPacksNamesAndUrls,
+        resolvedIconPacks,
         mermaidUrl,
         zenumlUrl,
         tidyTreeESMUrl,
@@ -601,27 +788,64 @@ async function renderMermaid(
     );
 
     if (outputFormat === "svg") {
-      const svgXML = await page.$eval("svg", (svg) => {
-        // SVG might have HTML <foreignObject> that are not valid XML
-        // E.g. <br> must be replaced with <br/>
-        // Luckily the DOM Web API has the XMLSerializer for this
-        const xmlSerializer = new XMLSerializer();
-        return xmlSerializer.serializeToString(svg);
-      });
+      const evalParams = {
+        browserUtilsUrl,
+        fontEmbed,
+      };
+      const svgXML = await page.$eval(
+        "svg",
+        async (svg, { browserUtilsUrl, fontEmbed }) => {
+          if (fontEmbed) {
+            // For SVGs, we need embed external fonts into the SVG.
+            /** @type {typeof import('./browser/fontEmbedder.js')} */
+            const { fontEmbedder } = await import(browserUtilsUrl);
+            try {
+              await fontEmbedder({
+                document,
+                svg,
+              });
+            } catch (error) {
+              throw new Error(
+                "Failed to embed fonts into SVG. Please report this error to https://github.com/mermaid-js/mermaid-cli/issues, and/or run using `--no-font-embed` if you don't need font embedding.",
+                { cause: error },
+              );
+            }
+          }
+
+          // SVG might have HTML <foreignObject> that are not valid XML
+          // E.g. <br> must be replaced with <br/>
+          // Luckily the DOM Web API has the XMLSerializer for this
+          const xmlSerializer = new XMLSerializer();
+          return xmlSerializer.serializeToString(svg);
+        },
+        evalParams,
+      );
       return {
         ...metadata,
         data: new TextEncoder().encode(svgXML),
       };
     } else if (outputFormat === "png") {
-      const clip = await page.$eval("svg", (svg) => {
-        const react = svg.getBoundingClientRect();
-        return {
-          x: Math.floor(react.left),
-          y: Math.floor(react.top),
-          width: Math.ceil(react.width),
-          height: Math.ceil(react.height),
-        };
-      });
+      const clip = await page.$eval(
+        "svg",
+        (svg, { size }) => {
+          const aspectRatio =
+            svg.viewBox.baseVal.width / svg.viewBox.baseVal.height;
+          // Browsers always use 100% width by default, so we need to decrease
+          // the width if the height would be 100%.
+          if (size && aspectRatio < 1) {
+            svg.style.maxWidth = `${Math.round(size * aspectRatio)}px`;
+          }
+
+          const react = svg.getBoundingClientRect();
+          return {
+            x: Math.floor(react.left),
+            y: Math.floor(react.top),
+            width: Math.ceil(react.width),
+            height: Math.ceil(react.height),
+          };
+        },
+        { size },
+      );
       await page.setViewport({
         ...viewport,
         width: clip.x + clip.width,
@@ -636,7 +860,7 @@ async function renderMermaid(
       };
     } else {
       // pdf
-      if (pdfFit) {
+      if (!pdfPaperFormat) {
         const clip = await page.$eval("svg", (svg) => {
           const react = svg.getBoundingClientRect();
           return {
@@ -650,6 +874,7 @@ async function renderMermaid(
           ...metadata,
           data: await page.pdf({
             omitBackground: backgroundColor === "transparent",
+            printBackground: true,
             width: Math.ceil(clip.width) + clip.x * 2 + "px",
             height: Math.ceil(clip.height) + clip.y * 2 + "px",
             pageRanges: "1-1",
@@ -660,6 +885,8 @@ async function renderMermaid(
           ...metadata,
           data: await page.pdf({
             omitBackground: backgroundColor === "transparent",
+            printBackground: true,
+            format: pdfPaperFormat,
           }),
         };
       }

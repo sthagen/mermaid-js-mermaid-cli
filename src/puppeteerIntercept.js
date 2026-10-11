@@ -23,8 +23,19 @@ function getContentTypeFromFileExtension(filePath) {
     case ".js":
     case ".mjs":
       return "application/javascript";
+    case ".json":
+      return "application/json";
     case ".woff2":
       return "font/woff2";
+    case ".woff":
+      return "font/woff";
+    case ".tff":
+      return "font/ttf";
+    case ".txt":
+    case "": // no extension
+      return "text/plain;charset=UTF-8";
+    case ".md":
+      return "text/markdown;charset=UTF-8";
     default:
       throw new Error(`Unsupported file extension for intercept: ${ext}`);
   }
@@ -55,7 +66,7 @@ export class Interceptor {
    * @param {Object} [options] - Optional options.
    * @param {number} [options.allowParentDirectoryLevel] - Number of parent directory levels to allow access to.
    */
-  async fileUrlToInterceptUrl(fileUrl, { allowParentDirectoryLevel = 1 } = {}) {
+  async fileUrlToInterceptUrl(fileUrl, { allowParentDirectoryLevel = 0 } = {}) {
     fileUrl = new URL(fileUrl);
     if (fileUrl.protocol !== "file:") {
       throw new Error(`Invalid file URL: ${fileUrl}`);
@@ -82,17 +93,30 @@ export class Interceptor {
       interceptUrl.href.slice(this.#INTERCEPT_ORIGIN.length),
       "file://",
     );
-    const filePath = await realpath(url.fileURLToPath(fileUrl));
-    if (
-      ![...this.#allowedDirs].some((dir) =>
-        path.relative(filePath, dir).startsWith(".."),
-      )
-    ) {
+    const requestedPath = path.resolve(url.fileURLToPath(fileUrl));
+    if (!this.#isInAllowedDir(requestedPath)) {
       throw new Error(
         `Intercept URL is not in an allowed directory: ${interceptUrl}`,
       );
     }
-    return fileUrl;
+    const realPath = await realpath(requestedPath);
+    if (!this.#isInAllowedDir(realPath)) {
+      throw new Error(
+        `Intercept URL is not in an allowed directory: ${interceptUrl}`,
+      );
+    }
+
+    return url.pathToFileURL(realPath);
+  }
+
+  /**
+   * @param {string} filePath - Absolute and normalized path.
+   */
+  #isInAllowedDir(filePath) {
+    return [...this.#allowedDirs].some((dir) => {
+      const rel = path.relative(dir, filePath);
+      return rel !== "" && !path.isAbsolute(rel);
+    });
   }
 
   /**
@@ -117,6 +141,22 @@ export class Interceptor {
         );
       }
     } catch (error) {
+      if (
+        // @ts-ignore -- `error instanceof Error` check doesn't work in Jest, due to https://github.com/jestjs/jest/issues/2549
+        error?.code === "ENOENT"
+      ) {
+        return request.respond(
+          {
+            status: 404,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+            contentType: "text/plain;charset=UTF-8",
+            body: `File not found: ${request.url()}`,
+          },
+          DEFAULT_INTERCEPT_RESOLUTION_PRIORITY,
+        );
+      }
       console.error(
         `Error handling intercept request for ${request.url()}:`,
         error,

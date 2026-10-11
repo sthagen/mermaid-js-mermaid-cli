@@ -485,6 +485,27 @@ describe("mermaid-cli", () => {
     timeout,
   );
 
+  test("should load icon pack from node_modules", async () => {
+    await promisify(execFile)("node", [
+      "src/cli.js",
+      "-i",
+      "test-positive/flowchart4.mmd",
+      "--iconPacks",
+      "@iconify-json/logos",
+      "--output",
+      "test-positive/flowchart4-with-logos.mmd.svg",
+    ]);
+    const output = await fs.readFile(
+      "test-positive/flowchart4-with-logos.mmd.svg",
+    );
+    expectBytesAreFormat(output, "svg");
+    const decoder = new TextDecoder();
+    const expectedIcon = (await import("@iconify-json/logos")).icons.icons[
+      "mermaid"
+    ].body;
+    expect(decoder.decode(output)).toContain(expectedIcon);
+  });
+
   test.concurrent.each(["svg", "png", "pdf"])(
     "should set red background to %s",
     async (format) => {
@@ -551,6 +572,29 @@ describe("mermaid-cli", () => {
 
       expect(small).toBeCloseTo(normal * 0.5, -1);
       expect(large).toBeCloseTo(normal * 1.5, -1);
+    },
+    timeout,
+  );
+
+  test.concurrent.each([1000, 2000, 4000])(
+    "should support the --size=%d option for diagrams",
+    async (size) => {
+      const outputFileName = `test-output/flowchart1-with-size-${size}.png`;
+      await promisify(execFile)("node", [
+        "src/cli.js",
+        "--input=test-positive/flowchart1.mmd",
+        "--output",
+        outputFileName,
+        "--size",
+        size,
+      ]);
+      const bytes = await fs.readFile(outputFileName);
+      expectBytesAreFormat(bytes, "png");
+      // PNG width is a 4-byte unsigned big-endian integer at byte offset 16
+      const width = bytes.readUInt32BE(16);
+      const height = bytes.readUInt32BE(20);
+      expect(height).toBe(size);
+      expect(width).toBeLessThanOrEqual(size);
     },
     timeout,
   );
@@ -772,9 +816,14 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
     test(
       "should show Iconify icon packs",
       async () => {
-        const mmdInput = "architecture-beta\n    group aws(logos:aws)[AWS]";
+        const mmdInput =
+          "architecture-beta\n    group aws(logos:mermaid)[Mermaid]";
         const result = await renderMermaid(browser, mmdInput, "svg", {
-          iconPacks: ["@iconify-json/logos"],
+          iconPacks: {
+            logos: new URL(
+              import.meta.resolve("@iconify-json/logos/icons.json"),
+            ),
+          },
         });
         expectBytesAreFormat(result.data, "svg");
         const decoder = new TextDecoder();
@@ -787,12 +836,16 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
       "should show Iconify icon packs and named iconpacks",
       async () => {
         const mmdInput =
-          'flowchart TD\n    aws@{ icon: "logos:aws" } \n    resource-groups@{ icon: "azure:resource-groups", label: "resource-groups" }';
+          'flowchart TD\n    mermaid@{ icon: "logos:mermaid" } \n    resource-groups@{ icon: "azure:resource-groups", label: "resource-groups" }';
         const result = await renderMermaid(browser, mmdInput, "svg", {
-          iconPacks: ["@iconify-json/logos"],
-          iconPacksNamesAndUrls: [
-            "azure#https://raw.githubusercontent.com/NakayamaKento/AzureIcons/refs/heads/main/icons.json",
-          ],
+          iconPacks: {
+            azure: new URL(
+              "https://raw.githubusercontent.com/NakayamaKento/AzureIcons/refs/heads/main/icons.json",
+            ),
+            logos: new URL(
+              import.meta.resolve("@iconify-json/logos/icons.json"),
+            ),
+          },
         });
         expectBytesAreFormat(result.data, "svg");
         const decoder = new TextDecoder();
@@ -837,5 +890,38 @@ describe("NodeJS API (import ... from '@mermaid-js/mermaid-cli')", () => {
       },
       timeout,
     );
+
+    test("should embed fonts into SVG", async () => {
+      const mmdInput = String.raw`flowchart TD
+    FontAwesome([fa:fa-car fa:fa-plane fa:fa-bicycle])`;
+      const result = await renderMermaid(browser, mmdInput, "svg");
+      expectBytesAreFormat(result.data, "svg");
+      const svg = new TextDecoder().decode(result.data);
+      expect(svg).toContain('url("data:font/woff2');
+      expect(svg).toContain(".fa-car");
+    });
+
+    test("should embed base Font Awesome CSS for brand icons", async () => {
+      // Brand icon rules live in `brands.css`, but the `.fab { font-family }`
+      // and `::before { content }` rules live in `fontawesome.css`.
+      const mmdInput = String.raw`flowchart TD
+    FontAwesome([fab:fa-github])`;
+      const result = await renderMermaid(browser, mmdInput, "svg");
+      expectBytesAreFormat(result.data, "svg");
+      const svg = new TextDecoder().decode(result.data);
+      expect(svg).toContain('url("data:font/woff2');
+      expect(svg).toContain(".fa-html5");
+    });
+
+    test("should not embed fonts into SVG if fontEmbed: false", async () => {
+      const mmdInput = String.raw`flowchart TD
+    FontAwesome([fa:fa-car fa:fa-plane fa:fa-bicycle])`;
+      const result = await renderMermaid(browser, mmdInput, "svg", {
+        fontEmbed: false,
+      });
+      expectBytesAreFormat(result.data, "svg");
+      const decoder = new TextDecoder();
+      expect(decoder.decode(result.data)).not.toContain('url("data:font/woff2');
+    });
   });
 });
